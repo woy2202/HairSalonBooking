@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="HairSalon.Booking.Api/HairSalon.Booking.Api.csproj" />
+  <Project Path="HairSalon.Booking.Core/HairSalon.Booking.Core.csproj" />
+  <Project Path="HairSalon.Booking.Functions/HairSalon.Booking.Functions.csproj" />
+</Solution>
