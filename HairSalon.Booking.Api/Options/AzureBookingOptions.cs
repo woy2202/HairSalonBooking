@@ -9,15 +9,20 @@ public sealed class AzureBookingOptions
 public sealed class CosmosOptions
 {
     public string? ConnectionString { get; set; }
-    public string DatabaseName { get; set; } = "booking-db";
-    public string ContainerName { get; set; } = "booking-items";
+    public string DatabaseName { get; set; } = "BookingApkaDB";
+    public string CustomersContainerName { get; set; } = "customers";
+    public string HairdressersContainerName { get; set; } = "barbers";
+    public string SalonServicesContainerName { get; set; } = "services";
+    public string AppointmentsContainerName { get; set; } = "appointments";
+    public string SalonPhotosContainerName { get; set; } = "salon-photos";
+    public string PartitionKeyPath { get; set; } = "/id";
 }
 
 public sealed class StorageOptions
 {
     public string? ConnectionString { get; set; }
-    public string AppointmentBlobContainer { get; set; } = "appointment-confirmations";
-    public string HairdresserPhotoBlobContainer { get; set; } = "hairdresser-photos";
-    public string SalonPhotoBlobContainer { get; set; } = "salon-photos";
-    public string AppointmentQueueName { get; set; } = "appointment-booked";
+    public string AppointmentBlobContainer { get; set; } = "wizyty";
+    public string HairdresserPhotoBlobContainer { get; set; } = "fryzjerzy-photo";
+    public string SalonPhotoBlobContainer { get; set; } = "salon-photo";
+    public string AppointmentQueueName { get; set; } = "booking-notifications";
 }

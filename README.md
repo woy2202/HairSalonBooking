@@ -41,21 +41,26 @@ W `HairSalon.Booking.Api/appsettings.json` ustaw:
   "Azure": {
     "Cosmos": {
       "ConnectionString": "<connection-string-do-booking-db>",
-      "DatabaseName": "booking-db",
-      "ContainerName": "booking-items"
+      "DatabaseName": "BookingApkaDB",
+      "CustomersContainerName": "customers",
+      "HairdressersContainerName": "barbers",
+      "SalonServicesContainerName": "services",
+      "AppointmentsContainerName": "appointments",
+      "SalonPhotosContainerName": "salon-photos",
+      "PartitionKeyPath": "/id"
     },
     "Storage": {
       "ConnectionString": "<connection-string-do-bookingfryzjer>",
       "AppointmentBlobContainer": "appointment-confirmations",
       "HairdresserPhotoBlobContainer": "hairdresser-photos",
       "SalonPhotoBlobContainer": "salon-photos",
-      "AppointmentQueueName": "appointment-booked"
+      "AppointmentQueueName": "booking-notifications"
     }
   }
 }
 ```
 
-Cosmos DB uzywa jednego kontenera z partition key `/partitionKey`. Blob Storage zapisuje tekstowe potwierdzenia wizyt, a Queue Storage wysyla komunikaty do Azure Function.
+Cosmos DB uzywa osobnych kontenerow dla glownych encji: `customers`, `barbers`, `services`, `appointments` oraz dodatkowego `salon-photos` dla metadanych zdjec salonu. Kazdy kontener powinien miec partition key `/id`. Blob Storage zapisuje tekstowe potwierdzenia wizyt, a Queue Storage wysyla komunikaty do Azure Function.
 Blob Storage zapisuje takze zdjecia fryzjerow i salonu. Endpointy uploadu przyjmuja pliki `multipart/form-data` typu JPG, PNG albo WEBP.
 
 ## Zdjecia
@@ -115,4 +120,4 @@ W Swaggerze mozna od razu przetestowac przykladowa rezerwacje:
 
 ## Azure Function
 
-Funkcja `AppointmentBookedQueueFunction` odbiera komunikaty z kolejki `appointment-booked`. W Azure ustaw `AzureWebJobsStorage` na connection string storage account `bookingfryzjer`.
+Funkcja `AppointmentBookedQueueFunction` odbiera komunikaty z kolejki `booking-notifications`. W Azure ustaw `AzureWebJobsStorage` na connection string storage account `bookingfryzjer`.

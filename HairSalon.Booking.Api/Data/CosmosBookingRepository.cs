@@ -4,15 +4,16 @@ using Microsoft.Azure.Cosmos;
 
 namespace HairSalon.Booking.Api.Data;
 
-public sealed class CosmosBookingRepository<T>(Container container) : IBookingRepository<T> where T : BookingEntity, new()
+public sealed class CosmosBookingRepository<T>(ICosmosContainerResolver containerResolver) : IBookingRepository<T> where T : BookingEntity, new()
 {
     private static readonly string EntityPartitionKey = new T().partitionKey;
+    private readonly Container _container = containerResolver.GetContainer<T>();
 
     public async Task<IReadOnlyList<T>> GetAllAsync(CancellationToken cancellationToken)
     {
         var query = new QueryDefinition("SELECT * FROM c WHERE c.partitionKey = @partitionKey")
             .WithParameter("@partitionKey", EntityPartitionKey);
-        using var iterator = container.GetItemQueryIterator<T>(query);
+        using var iterator = _container.GetItemQueryIterator<T>(query);
         var results = new List<T>();
 
         while (iterator.HasMoreResults)
@@ -28,7 +29,7 @@ public sealed class CosmosBookingRepository<T>(Container container) : IBookingRe
     {
         try
         {
-            return await container.ReadItemAsync<T>(id, new PartitionKey(EntityPartitionKey), cancellationToken: cancellationToken);
+            return await _container.ReadItemAsync<T>(id, new PartitionKey(id), cancellationToken: cancellationToken);
         }
         catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -40,19 +41,19 @@ public sealed class CosmosBookingRepository<T>(Container container) : IBookingRe
     {
         entity.id = string.IsNullOrWhiteSpace(entity.id) ? Guid.NewGuid().ToString("N") : entity.id;
         entity.partitionKey = EntityPartitionKey;
-        var response = await container.CreateItemAsync(entity, new PartitionKey(entity.partitionKey), cancellationToken: cancellationToken);
+        var response = await _container.CreateItemAsync(entity, new PartitionKey(entity.id), cancellationToken: cancellationToken);
         return response.Resource;
     }
 
     public async Task<T> UpsertAsync(T entity, CancellationToken cancellationToken)
     {
         entity.partitionKey = EntityPartitionKey;
-        var response = await container.UpsertItemAsync(entity, new PartitionKey(entity.partitionKey), cancellationToken: cancellationToken);
+        var response = await _container.UpsertItemAsync(entity, new PartitionKey(entity.id), cancellationToken: cancellationToken);
         return response.Resource;
     }
 
     public async Task DeleteAsync(string id, CancellationToken cancellationToken)
     {
-        await container.DeleteItemAsync<T>(id, new PartitionKey(EntityPartitionKey), cancellationToken: cancellationToken);
+        await _container.DeleteItemAsync<T>(id, new PartitionKey(id), cancellationToken: cancellationToken);
     }
 }

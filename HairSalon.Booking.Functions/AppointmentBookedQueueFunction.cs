@@ -7,7 +7,7 @@ namespace HairSalon.Booking.Functions;
 public sealed class AppointmentBookedQueueFunction(ILogger<AppointmentBookedQueueFunction> logger)
 {
     [Function(nameof(AppointmentBookedQueueFunction))]
-    public void Run([QueueTrigger("appointment-booked", Connection = "AzureWebJobsStorage")] string message)
+    public void Run([QueueTrigger("booking-notifications", Connection = "AzureWebJobsStorage")] string message)
     {
         var appointment = JsonSerializer.Deserialize<AppointmentBookedMessage>(message);
         logger.LogInformation(

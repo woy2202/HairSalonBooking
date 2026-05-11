@@ -35,12 +35,7 @@ public static class ServiceCollectionExtensions
         }
 
         services.AddSingleton(_ => new CosmosClient(options.Cosmos.ConnectionString));
-        services.AddSingleton(sp =>
-        {
-            var client = sp.GetRequiredService<CosmosClient>();
-            var database = client.CreateDatabaseIfNotExistsAsync(options.Cosmos.DatabaseName).GetAwaiter().GetResult().Database;
-            return database.CreateContainerIfNotExistsAsync(options.Cosmos.ContainerName, "/partitionKey").GetAwaiter().GetResult().Container;
-        });
+        services.AddSingleton<ICosmosContainerResolver, CosmosContainerResolver>();
         services.AddScoped(typeof(IBookingRepository<>), typeof(CosmosBookingRepository<>));
         return services;
     }
