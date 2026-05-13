@@ -15,6 +15,7 @@ public sealed class CosmosOptions
     public string SalonServicesContainerName { get; set; } = "services";
     public string AppointmentsContainerName { get; set; } = "appointments";
     public string SalonPhotosContainerName { get; set; } = "salon-photos";
+    public string UsersContainerName { get; set; } = "users";
     public string PartitionKeyPath { get; set; } = "/id";
 }
 

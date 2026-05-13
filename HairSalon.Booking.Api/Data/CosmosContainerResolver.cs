@@ -63,6 +63,11 @@ public sealed class CosmosContainerResolver : ICosmosContainerResolver
             return _options.SalonPhotosContainerName;
         }
 
+        if (entityType == typeof(AppUser))
+        {
+            return _options.UsersContainerName;
+        }
+
         throw new InvalidOperationException($"No Cosmos DB container configured for entity type {entityType.Name}.");
     }
 }

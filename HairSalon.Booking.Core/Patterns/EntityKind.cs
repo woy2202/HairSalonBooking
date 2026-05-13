@@ -6,5 +6,6 @@ public enum EntityKind
     Hairdresser,
     SalonService,
     Appointment,
-    SalonPhoto
+    SalonPhoto,
+    AppUser
 }

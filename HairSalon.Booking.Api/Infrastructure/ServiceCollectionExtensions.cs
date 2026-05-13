@@ -15,7 +15,9 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddBookingApplication(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<AzureBookingOptions>(configuration.GetSection("Azure"));
+        services.AddHttpContextAccessor();
         services.AddSingleton<IBookingEntityFactory, BookingEntityFactory>();
+        services.AddScoped<ICurrentUserService, EasyAuthCurrentUserService>();
         services.AddScoped<IPhotoStorageService, BlobPhotoStorageService>();
         services.AddScoped<IAppointmentBookingFacade, AppointmentBookingFacade>();
         services.AddScoped<IAppointmentBookedHandler, AzureBlobAppointmentSummaryHandler>();
@@ -30,6 +32,7 @@ public static class ServiceCollectionExtensions
             services.AddSingleton<IBookingRepository<SalonService>, InMemoryBookingRepository<SalonService>>();
             services.AddSingleton<IBookingRepository<Appointment>, InMemoryBookingRepository<Appointment>>();
             services.AddSingleton<IBookingRepository<SalonPhoto>, InMemoryBookingRepository<SalonPhoto>>();
+            services.AddSingleton<IBookingRepository<AppUser>, InMemoryBookingRepository<AppUser>>();
             services.AddHostedService<SeedDataHostedService>();
             return services;
         }

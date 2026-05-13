@@ -47,6 +47,7 @@ W `HairSalon.Booking.Api/appsettings.json` ustaw:
       "SalonServicesContainerName": "services",
       "AppointmentsContainerName": "appointments",
       "SalonPhotosContainerName": "salon-photos",
+      "UsersContainerName": "users",
       "PartitionKeyPath": "/id"
     },
     "Storage": {
@@ -60,8 +61,22 @@ W `HairSalon.Booking.Api/appsettings.json` ustaw:
 }
 ```
 
-Cosmos DB uzywa osobnych kontenerow dla glownych encji: `customers`, `barbers`, `services`, `appointments` oraz dodatkowego `salon-photos` dla metadanych zdjec salonu. Kazdy kontener powinien miec partition key `/id`. Blob Storage zapisuje tekstowe potwierdzenia wizyt, a Queue Storage wysyla komunikaty do Azure Function.
+Cosmos DB uzywa osobnych kontenerow dla glownych encji: `customers`, `barbers`, `services`, `appointments`, `users` oraz dodatkowego `salon-photos` dla metadanych zdjec salonu. Kazdy kontener powinien miec partition key `/id`. Blob Storage zapisuje tekstowe potwierdzenia wizyt, a Queue Storage wysyla komunikaty do Azure Function.
 Blob Storage zapisuje takze zdjecia fryzjerow i salonu. Endpointy uploadu przyjmuja pliki `multipart/form-data` typu JPG, PNG albo WEBP.
+
+## Easy Auth
+
+Backend ma endpointy pomocnicze dla Azure App Service Authentication:
+
+```text
+GET /api/Auth/headers
+GET /api/Auth/me
+POST /api/Auth/register
+```
+
+Easy Auth obsluguje logowanie przez providera, np. GitHub. Backend czyta naglowki `X-MS-CLIENT-PRINCIPAL-*` przekazane przez App Service i zapisuje lokalny profil uzytkownika w kontenerze Cosmos DB `users`.
+
+`POST /api/Auth/register` nie przyjmuje hasla. Rejestracja oznacza utworzenie profilu aplikacji dla juz zalogowanego uzytkownika Easy Auth.
 
 ## Zdjecia
 

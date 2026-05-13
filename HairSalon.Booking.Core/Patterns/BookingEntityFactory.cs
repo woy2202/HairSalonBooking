@@ -17,6 +17,7 @@ public sealed class BookingEntityFactory : IBookingEntityFactory
         EntityKind.SalonService => new SalonService(),
         EntityKind.Appointment => new Appointment(),
         EntityKind.SalonPhoto => new SalonPhoto(),
+        EntityKind.AppUser => new AppUser(),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported booking entity kind.")
     };
 }

@@ -13,8 +13,11 @@ namespace HairSalon.Booking.Api.Controllers;
 [Route("api/[controller]")]
 public sealed class HairdressersController(
     IBookingRepository<Hairdresser> repository,
+    IBookingRepository<Appointment> appointments,
+    IBookingRepository<Customer> customers,
     IAppointmentBookingFacade bookingFacade,
     IPhotoStorageService photoStorage,
+    ICurrentUserService currentUser,
     IOptions<AzureBookingOptions> options) : ControllerBase
 {
     [HttpGet]
@@ -26,6 +29,59 @@ public sealed class HairdressersController(
     {
         var hairdresser = await repository.GetAsync(id, cancellationToken);
         return hairdresser is null ? NotFound() : Ok(hairdresser);
+    }
+
+    [HttpGet("me/appointments")]
+    public async Task<ActionResult<IReadOnlyList<Appointment>>> GetMyAppointments(CancellationToken cancellationToken)
+    {
+        var user = await currentUser.GetCurrentAppUserAsync(cancellationToken);
+        if (user?.HairdresserId is null)
+        {
+            return Forbid();
+        }
+
+        var allAppointments = await appointments.GetAllAsync(cancellationToken);
+        var hairdresserAppointments = allAppointments
+            .Where(appointment => appointment.HairdresserId == user.HairdresserId)
+            .OrderBy(appointment => appointment.StartAt)
+            .ToList();
+
+        return Ok(hairdresserAppointments);
+    }
+
+    [HttpGet("me/customers/{customerId}/history")]
+    public async Task<ActionResult> GetCustomerHistory(string customerId, CancellationToken cancellationToken)
+    {
+        var user = await currentUser.GetCurrentAppUserAsync(cancellationToken);
+        if (user?.HairdresserId is null)
+        {
+            return Forbid();
+        }
+
+        var customer = await customers.GetAsync(customerId, cancellationToken);
+        if (customer is null)
+        {
+            return NotFound();
+        }
+
+        var allAppointments = await appointments.GetAllAsync(cancellationToken);
+        var sharedAppointments = allAppointments
+            .Where(appointment => appointment.CustomerId == customerId && appointment.HairdresserId == user.HairdresserId)
+            .OrderByDescending(appointment => appointment.StartAt)
+            .ToList();
+
+        if (sharedAppointments.Count == 0)
+        {
+            return Forbid();
+        }
+
+        return Ok(new
+        {
+            Customer = customer,
+            PreviousAppointments = sharedAppointments.Where(appointment => appointment.StartAt < DateTimeOffset.UtcNow),
+            UpcomingAppointments = sharedAppointments.Where(appointment => appointment.StartAt >= DateTimeOffset.UtcNow),
+            UsedServiceIds = sharedAppointments.Select(appointment => appointment.SalonServiceId).Distinct().ToList()
+        });
     }
 
     [HttpGet("{id}/availability/{day}")]
