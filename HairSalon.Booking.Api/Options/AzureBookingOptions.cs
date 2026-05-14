@@ -4,6 +4,8 @@ public sealed class AzureBookingOptions
 {
     public CosmosOptions Cosmos { get; set; } = new();
     public StorageOptions Storage { get; set; } = new();
+    public SignalROptions SignalR { get; set; } = new();
+    public KeyVaultOptions KeyVault { get; set; } = new();
 }
 
 public sealed class CosmosOptions
@@ -26,4 +28,14 @@ public sealed class StorageOptions
     public string HairdresserPhotoBlobContainer { get; set; } = "fryzjerzy-photo";
     public string SalonPhotoBlobContainer { get; set; } = "salon-photo";
     public string AppointmentQueueName { get; set; } = "booking-notifications";
+}
+
+public sealed class SignalROptions
+{
+    public string? ConnectionString { get; set; }
+}
+
+public sealed class KeyVaultOptions
+{
+    public string? VaultUri { get; set; }
 }

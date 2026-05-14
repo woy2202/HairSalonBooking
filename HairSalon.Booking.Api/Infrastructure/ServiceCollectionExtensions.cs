@@ -22,9 +22,16 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAppointmentBookingFacade, AppointmentBookingFacade>();
         services.AddScoped<IAppointmentBookedHandler, AzureBlobAppointmentSummaryHandler>();
         services.AddScoped<IAppointmentBookedHandler, AzureQueueAppointmentBookedHandler>();
+        services.AddScoped<IAppointmentBookedHandler, SignalRAppointmentBookedHandler>();
         services.AddScoped<IBookingEventPublisher, BookingEventPublisher>();
 
         var options = configuration.GetSection("Azure").Get<AzureBookingOptions>() ?? new AzureBookingOptions();
+        var signalRBuilder = services.AddSignalR();
+        if (!string.IsNullOrWhiteSpace(options.SignalR.ConnectionString))
+        {
+            signalRBuilder.AddAzureSignalR(options.SignalR.ConnectionString);
+        }
+
         if (string.IsNullOrWhiteSpace(options.Cosmos.ConnectionString))
         {
             services.AddSingleton<IBookingRepository<Customer>, InMemoryBookingRepository<Customer>>();

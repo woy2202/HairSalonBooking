@@ -56,6 +56,9 @@ W `HairSalon.Booking.Api/appsettings.json` ustaw:
       "HairdresserPhotoBlobContainer": "hairdresser-photos",
       "SalonPhotoBlobContainer": "salon-photos",
       "AppointmentQueueName": "booking-notifications"
+    },
+    "SignalR": {
+      "ConnectionString": "<connection-string-do-azure-signalr>"
     }
   }
 }
@@ -77,6 +80,82 @@ POST /api/Auth/register
 Easy Auth obsluguje logowanie przez providera, np. GitHub. Backend czyta naglowki `X-MS-CLIENT-PRINCIPAL-*` przekazane przez App Service i zapisuje lokalny profil uzytkownika w kontenerze Cosmos DB `users`.
 
 `POST /api/Auth/register` nie przyjmuje hasla. Rejestracja oznacza utworzenie profilu aplikacji dla juz zalogowanego uzytkownika Easy Auth.
+
+## Azure SignalR
+
+API udostepnia hub:
+
+```text
+/hubs/booking-notifications
+```
+
+Po utworzeniu wizyty backend wysyla zdarzenia:
+
+```text
+appointmentBooked
+hairdresserAppointmentBooked
+```
+
+Do testu ze Swaggera mozna uzyc:
+
+```text
+POST /api/Notifications/test
+```
+
+W Azure App Service ustaw zmienna srodowiskowa:
+
+```text
+Azure__SignalR__ConnectionString
+```
+
+na connection string z Azure SignalR Service.
+
+## Key Vault, Monitor i Email
+
+API i Function moga pobierac sekrety z Azure Key Vault. Ustaw:
+
+```text
+Azure__KeyVault__VaultUri
+```
+
+w App Service oraz:
+
+```text
+KeyVault:VaultUri
+```
+
+w Function App. W Key Vault nazwy sekretow dla konfiguracji .NET zapisuj z `--`, np.:
+
+```text
+Azure--Cosmos--ConnectionString
+Azure--Storage--ConnectionString
+Azure--SignalR--ConnectionString
+Email--ConnectionString
+Email--SenderAddress
+```
+
+Application Insights / Azure Monitor wlaczysz przez connection string:
+
+```text
+APPLICATIONINSIGHTS_CONNECTION_STRING
+```
+
+dla Function App oraz przez:
+
+```text
+ApplicationInsights__ConnectionString
+```
+
+dla App Service.
+
+Azure Communication Services Email wysyla potwierdzenie wizyty z Azure Function po odebraniu komunikatu z kolejki `booking-notifications`. Funkcja wymaga:
+
+```text
+Email:ConnectionString
+Email:SenderAddress
+```
+
+`SenderAddress` to adres nadawcy skonfigurowany w Azure Communication Services Email, a nie zwykle haslo do Gmaila/Outlooka.
 
 ## Zdjecia
 
