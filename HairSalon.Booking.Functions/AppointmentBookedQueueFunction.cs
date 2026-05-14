@@ -9,10 +9,17 @@ public sealed class AppointmentBookedQueueFunction(
     ILogger<AppointmentBookedQueueFunction> logger,
     IEmailSender emailSender)
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     [Function(nameof(AppointmentBookedQueueFunction))]
     public async Task Run([QueueTrigger("booking-notifications", Connection = "AzureWebJobsStorage")] string message, CancellationToken cancellationToken)
     {
-        var appointment = JsonSerializer.Deserialize<AppointmentBookedMessage>(message);
+        logger.LogInformation("Queue message received by AppointmentBookedQueueFunction.");
+
+        var appointment = JsonSerializer.Deserialize<AppointmentBookedMessage>(message, JsonOptions);
         if (appointment is null)
         {
             logger.LogWarning("Queue message could not be deserialized: {Message}", message);
@@ -27,7 +34,16 @@ public sealed class AppointmentBookedQueueFunction(
             appointment.SalonServiceId,
             appointment.StartAt);
 
-        await emailSender.SendAppointmentConfirmationAsync(appointment, cancellationToken);
+        try
+        {
+            await emailSender.SendAppointmentConfirmationAsync(appointment, cancellationToken);
+            logger.LogInformation("Appointment confirmation processing finished for {AppointmentId}.", appointment.AppointmentId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Appointment confirmation processing failed for {AppointmentId}.", appointment.AppointmentId);
+            throw;
+        }
     }
 }
 
