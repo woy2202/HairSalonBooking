@@ -1,9 +1,10 @@
 using HairSalon.Booking.Core.Models;
 
-namespace HairSalon.Booking.Api.Infrastructure;
-
-public interface ICurrentUserService
+namespace HairSalon.Booking.Api.Infrastructure
 {
-    CurrentUserInfo? GetCurrentPrincipal();
-    Task<AppUser?> GetCurrentAppUserAsync(CancellationToken cancellationToken);
+    public interface ICurrentUserService
+    {
+        CurrentUserInfo? GetCurrentPrincipal();
+        Task<AppUser?> GetCurrentAppUserAsync(CancellationToken cancellationToken);
+    }
 }

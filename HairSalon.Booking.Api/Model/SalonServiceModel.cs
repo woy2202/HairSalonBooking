@@ -1,8 +1,15 @@
-namespace HairSalon.Booking.Api.Model;
+namespace HairSalon.Booking.Api.Model
+{
+    public sealed class SalonServiceRequest
+    {
+        public string Name { get; set; } = string.Empty;
 
-public sealed record SalonServiceRequest(
-    string Name, 
-    string Description, 
-    int DurationMinutes, 
-    decimal Price, 
-    bool IsAvailable);
+        public string Description { get; set; } = string.Empty;
+
+        public int DurationMinutes { get; set; }
+
+        public decimal Price { get; set; }
+
+        public bool IsAvailable { get; set; }
+    }
+}

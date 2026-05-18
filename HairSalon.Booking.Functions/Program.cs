@@ -6,24 +6,45 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-var host = new HostBuilder()
-    .ConfigureAppConfiguration((context, configuration) =>
+namespace HairSalon.Booking.Functions
+{
+    public class Program
     {
-        var builtConfiguration = configuration.Build();
-        var keyVaultUri = builtConfiguration["KeyVault:VaultUri"];
-        if (!string.IsNullOrWhiteSpace(keyVaultUri))
+        public static void Main()
         {
-            configuration.AddAzureKeyVault(new Uri(keyVaultUri), new DefaultAzureCredential(), new AzureKeyVaultConfigurationOptions());
-        }
-    })
-    .ConfigureFunctionsWorkerDefaults()
-    .ConfigureServices((context, services) =>
-    {
-        services.AddApplicationInsightsTelemetryWorkerService();
-        services.ConfigureFunctionsApplicationInsights();
-        services.Configure<EmailOptions>(context.Configuration.GetSection("Email"));
-        services.AddSingleton<IEmailSender, AzureCommunicationEmailSender>();
-    })
-    .Build();
+            var host = new HostBuilder()
+                .ConfigureAppConfiguration(ConfigureAppConfiguration)
+                .ConfigureFunctionsWorkerDefaults()
+                .ConfigureServices(ConfigureServices)
+                .Build();
 
-host.Run();
+            host.Run();
+        }
+
+        private static void ConfigureAppConfiguration(HostBuilderContext context, IConfigurationBuilder configuration)
+        {
+            var builtConfiguration = configuration.Build();
+            var keyVaultUri = builtConfiguration["Azure:KeyVault:VaultUri"];
+            if (string.IsNullOrWhiteSpace(keyVaultUri))
+            {
+                keyVaultUri = builtConfiguration["KeyVault:VaultUri"];
+            }
+
+            if (!string.IsNullOrWhiteSpace(keyVaultUri))
+            {
+                configuration.AddAzureKeyVault(
+                    new Uri(keyVaultUri),
+                    new DefaultAzureCredential(),
+                    new AzureKeyVaultConfigurationOptions());
+            }
+        }
+
+        private static void ConfigureServices(HostBuilderContext context, IServiceCollection services)
+        {
+            services.AddApplicationInsightsTelemetryWorkerService();
+            services.ConfigureFunctionsApplicationInsights();
+            services.Configure<EmailOptions>(context.Configuration.GetSection("Email"));
+            services.AddSingleton<IEmailSender, AzureCommunicationEmailSender>();
+        }
+    }
+}

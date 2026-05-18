@@ -1,8 +1,9 @@
-namespace HairSalon.Booking.Core.Models;
-
-public enum UserRole
+namespace HairSalon.Booking.Core.Models
 {
-    Customer = 0,
-    Hairdresser = 1,
-    Admin = 2
+    public enum UserRole
+    {
+        Customer = 0,
+        Hairdresser = 1,
+        Admin = 2
+    }
 }

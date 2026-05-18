@@ -1,8 +1,14 @@
 using HairSalon.Booking.Core.Models;
 
-namespace HairSalon.Booking.Core.Events;
-
-public sealed class AppointmentBookedEventArgs(Appointment appointment) : EventArgs
+namespace HairSalon.Booking.Core.Events
 {
-    public Appointment Appointment { get; } = appointment;
+    public sealed class AppointmentBookedEventArgs : EventArgs
+    {
+        public AppointmentBookedEventArgs(Appointment appointment)
+        {
+            Appointment = appointment;
+        }
+
+        public Appointment Appointment { get; }
+    }
 }

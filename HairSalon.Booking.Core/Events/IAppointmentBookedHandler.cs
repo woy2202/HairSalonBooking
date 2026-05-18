@@ -1,8 +1,9 @@
 using HairSalon.Booking.Core.Models;
 
-namespace HairSalon.Booking.Core.Events;
-
-public interface IAppointmentBookedHandler
+namespace HairSalon.Booking.Core.Events
 {
-    Task HandleAsync(Appointment appointment, CancellationToken cancellationToken);
+    public interface IAppointmentBookedHandler
+    {
+        Task HandleAsync(Appointment appointment, CancellationToken cancellationToken);
+    }
 }

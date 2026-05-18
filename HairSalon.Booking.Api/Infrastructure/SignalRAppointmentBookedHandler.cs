@@ -3,25 +3,34 @@ using HairSalon.Booking.Core.Events;
 using HairSalon.Booking.Core.Models;
 using Microsoft.AspNetCore.SignalR;
 
-namespace HairSalon.Booking.Api.Infrastructure;
-
-public sealed class SignalRAppointmentBookedHandler(IHubContext<BookingNotificationsHub> hubContext) : IAppointmentBookedHandler
+namespace HairSalon.Booking.Api.Infrastructure
 {
-    public async Task HandleAsync(Appointment appointment, CancellationToken cancellationToken)
+    public sealed class SignalRAppointmentBookedHandler : IAppointmentBookedHandler
     {
-        var payload = new
-        {
-            appointmentId = appointment.id,
-            appointment.CustomerId,
-            appointment.HairdresserId,
-            appointment.SalonServiceId,
-            appointment.StartAt,
-            appointment.EndAt,
-            appointment.Status
-        };
+        private readonly IHubContext<BookingNotificationsHub> _hubContext;
 
-        await hubContext.Clients.All.SendAsync("appointmentBooked", payload, cancellationToken);
-        await hubContext.Clients.Group($"hairdresser:{appointment.HairdresserId}")
-            .SendAsync("hairdresserAppointmentBooked", payload, cancellationToken);
+        public SignalRAppointmentBookedHandler(IHubContext<BookingNotificationsHub> hubContext)
+        {
+            _hubContext = hubContext;
+        }
+
+        public async Task HandleAsync(Appointment appointment, CancellationToken cancellationToken)
+        {
+            var payload = new
+            {
+                appointmentId = appointment.id,
+                appointment.CustomerId,
+                appointment.HairdresserId,
+                appointment.SalonServiceId,
+                appointment.StartAt,
+                appointment.EndAt,
+                appointment.Status
+            };
+
+            await _hubContext.Clients.Group(BookingNotificationsHub.GetAdminGroupName())
+                .SendAsync("appointmentBooked", payload, cancellationToken);
+            await _hubContext.Clients.Group($"hairdresser:{appointment.HairdresserId}")
+                .SendAsync("hairdresserAppointmentBooked", payload, cancellationToken);
+        }
     }
 }

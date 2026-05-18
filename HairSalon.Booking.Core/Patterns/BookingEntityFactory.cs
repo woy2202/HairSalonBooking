@@ -1,23 +1,33 @@
 using HairSalon.Booking.Core.Models;
 
-namespace HairSalon.Booking.Core.Patterns;
-
-// Factory Method: centralizes creation of domain entities with valid partition keys.
-public interface IBookingEntityFactory
+namespace HairSalon.Booking.Core.Patterns
 {
-    BookingEntity Create(EntityKind kind);
-}
-
-public sealed class BookingEntityFactory : IBookingEntityFactory
-{
-    public BookingEntity Create(EntityKind kind) => kind switch
+    public interface IBookingEntityFactory
     {
-        EntityKind.Customer => new Customer(),
-        EntityKind.Hairdresser => new Hairdresser(),
-        EntityKind.SalonService => new SalonService(),
-        EntityKind.Appointment => new Appointment(),
-        EntityKind.SalonPhoto => new SalonPhoto(),
-        EntityKind.AppUser => new AppUser(),
-        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported booking entity kind.")
-    };
+        BookingEntity Create(EntityKind kind);
+    }
+
+    public sealed class BookingEntityFactory : IBookingEntityFactory
+    {
+        public BookingEntity Create(EntityKind kind)
+        {
+            switch (kind)
+            {
+                case EntityKind.Customer:
+                    return new Customer();
+                case EntityKind.Hairdresser:
+                    return new Hairdresser();
+                case EntityKind.SalonService:
+                    return new SalonService();
+                case EntityKind.Appointment:
+                    return new Appointment();
+                case EntityKind.SalonPhoto:
+                    return new SalonPhoto();
+                case EntityKind.AppUser:
+                    return new AppUser();
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(kind), kind, "Nieobsługiwany typ encji rezerwacji.");
+            }
+        }
+    }
 }

@@ -3,58 +3,79 @@ using HairSalon.Booking.Functions.Email;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 
-namespace HairSalon.Booking.Functions;
-
-public sealed class AppointmentBookedQueueFunction(
-    ILogger<AppointmentBookedQueueFunction> logger,
-    IEmailSender emailSender)
+namespace HairSalon.Booking.Functions
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    public sealed class AppointmentBookedQueueFunction
     {
-        PropertyNameCaseInsensitive = true
-    };
-
-    [Function(nameof(AppointmentBookedQueueFunction))]
-    public async Task Run([QueueTrigger("booking-notifications", Connection = "AzureWebJobsStorage")] string message, CancellationToken cancellationToken)
-    {
-        logger.LogInformation("Queue message received by AppointmentBookedQueueFunction.");
-
-        var appointment = JsonSerializer.Deserialize<AppointmentBookedMessage>(message, JsonOptions);
-        if (appointment is null)
+        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions()
         {
-            logger.LogWarning("Queue message could not be deserialized: {Message}", message);
-            return;
+            PropertyNameCaseInsensitive = true
+        };
+
+        private readonly ILogger<AppointmentBookedQueueFunction> _logger;
+        private readonly IEmailSender _emailSender;
+
+        public AppointmentBookedQueueFunction(
+            ILogger<AppointmentBookedQueueFunction> logger,
+            IEmailSender emailSender)
+        {
+            _logger = logger;
+            _emailSender = emailSender;
         }
 
-        logger.LogInformation(
-            "Appointment {AppointmentId} should receive confirmation. Customer={CustomerId}, Hairdresser={HairdresserId}, Service={ServiceId}, Start={StartAt}",
-            appointment.AppointmentId,
-            appointment.CustomerId,
-            appointment.HairdresserId,
-            appointment.SalonServiceId,
-            appointment.StartAt);
+        [Function(nameof(AppointmentBookedQueueFunction))]
+        public async Task Run([QueueTrigger("%AppointmentQueueName%", Connection = "AzureWebJobsStorage")] string message, CancellationToken cancellationToken)
+        {
+            _logger.LogInformation("Odebrano wiadomoœæ z kolejki przez AppointmentBookedQueueFunction.");
 
-        try
-        {
-            await emailSender.SendAppointmentConfirmationAsync(appointment, cancellationToken);
-            logger.LogInformation("Appointment confirmation processing finished for {AppointmentId}.", appointment.AppointmentId);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Appointment confirmation processing failed for {AppointmentId}.", appointment.AppointmentId);
-            throw;
+            var appointment = JsonSerializer.Deserialize<AppointmentBookedMessage>(message, JsonOptions);
+            if (appointment is null)
+            {
+                _logger.LogWarning("Nie uda³o siê odczytaæ wiadomoœci z kolejki: {Message}", message);
+                return;
+            }
+
+            _logger.LogInformation(
+                "Wizyta {AppointmentId} zosta³a przekazana do wys³ania potwierdzenia. Klient={CustomerId}, Fryzjer={HairdresserId}, Us³uga={ServiceId}, Data wizyty={StartAt}",
+                appointment.AppointmentId,
+                appointment.CustomerId,
+                appointment.HairdresserId,
+                appointment.SalonServiceId,
+                appointment.StartAt);
+
+            try
+            {
+                await _emailSender.SendAppointmentConfirmationAsync(appointment, cancellationToken);
+                _logger.LogInformation("Zakoñczono obs³ugê potwierdzenia wizyty {AppointmentId}.", appointment.AppointmentId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Nie uda³o siê obs³u¿yæ potwierdzenia wizyty {AppointmentId}.", appointment.AppointmentId);
+                throw;
+            }
         }
     }
-}
 
-public sealed record AppointmentBookedMessage(
-    string AppointmentId,
-    string CustomerId,
-    string HairdresserId,
-    string SalonServiceId,
-    DateTimeOffset StartAt,
-    DateTimeOffset EndAt,
-    string? CustomerEmail,
-    string? CustomerName,
-    string? HairdresserName,
-    string? ServiceName);
+    public sealed class AppointmentBookedMessage
+    {
+        public string AppointmentId { get; set; } = string.Empty;
+
+        public string CustomerId { get; set; } = string.Empty;
+
+        public string HairdresserId { get; set; } = string.Empty;
+
+        public string SalonServiceId { get; set; } = string.Empty;
+
+        public DateTimeOffset StartAt { get; set; }
+
+        public DateTimeOffset EndAt { get; set; }
+
+        public string? CustomerEmail { get; set; }
+
+        public string? CustomerName { get; set; }
+
+        public string? HairdresserName { get; set; }
+
+        public string? ServiceName { get; set; }
+    }
+}

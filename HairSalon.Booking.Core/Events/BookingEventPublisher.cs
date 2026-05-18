@@ -1,25 +1,35 @@
 using HairSalon.Booking.Core.Models;
 
-namespace HairSalon.Booking.Core.Events;
-
-// Observer/Event pattern: storage, queues and future subscribers react to bookings independently.
-public interface IBookingEventPublisher
+namespace HairSalon.Booking.Core.Events
 {
-    event EventHandler<AppointmentBookedEventArgs>? AppointmentBooked;
-    Task PublishAppointmentBookedAsync(Appointment appointment, CancellationToken cancellationToken);
-}
-
-public sealed class BookingEventPublisher(IEnumerable<IAppointmentBookedHandler> handlers) : IBookingEventPublisher
-{
-    public event EventHandler<AppointmentBookedEventArgs>? AppointmentBooked;
-
-    public async Task PublishAppointmentBookedAsync(Appointment appointment, CancellationToken cancellationToken)
+    public interface IBookingEventPublisher
     {
-        AppointmentBooked?.Invoke(this, new AppointmentBookedEventArgs(appointment));
+        event EventHandler<AppointmentBookedEventArgs>? AppointmentBooked;
+        Task PublishAppointmentBookedAsync(Appointment appointment, CancellationToken cancellationToken);
+    }
 
-        foreach (var handler in handlers)
+    public sealed class BookingEventPublisher : IBookingEventPublisher
+    {
+        private readonly IEnumerable<IAppointmentBookedHandler> _handlers;
+
+        public BookingEventPublisher(IEnumerable<IAppointmentBookedHandler> handlers)
         {
-            await handler.HandleAsync(appointment, cancellationToken);
+            _handlers = handlers;
+        }
+
+        public event EventHandler<AppointmentBookedEventArgs>? AppointmentBooked;
+
+        public async Task PublishAppointmentBookedAsync(Appointment appointment, CancellationToken cancellationToken)
+        {
+            if (AppointmentBooked != null)
+            {
+                AppointmentBooked(this, new AppointmentBookedEventArgs(appointment));
+            }
+
+            foreach (var handler in _handlers)
+            {
+                await handler.HandleAsync(appointment, cancellationToken);
+            }
         }
     }
 }

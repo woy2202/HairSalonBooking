@@ -1,9 +1,10 @@
-namespace HairSalon.Booking.Core.Models;
-
-public enum AppointmentStatus
+namespace HairSalon.Booking.Core.Models
 {
-    Booked = 0,
-    Confirmed = 1,
-    Completed = 2,
-    Cancelled = 3
+    public enum AppointmentStatus
+    {
+        Booked = 0,
+        Confirmed = 1,
+        Completed = 2,
+        Cancelled = 3
+    }
 }

@@ -3,57 +3,67 @@ using Azure.Communication.Email;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace HairSalon.Booking.Functions.Email;
-
-public sealed class AzureCommunicationEmailSender(
-    IOptions<EmailOptions> options,
-    ILogger<AzureCommunicationEmailSender> logger) : IEmailSender
+namespace HairSalon.Booking.Functions.Email
 {
-    public async Task SendAppointmentConfirmationAsync(AppointmentBookedMessage message, CancellationToken cancellationToken)
+    public sealed class AzureCommunicationEmailSender : IEmailSender
     {
-        if (string.IsNullOrWhiteSpace(message.CustomerEmail))
+        private readonly IOptions<EmailOptions> _options;
+        private readonly ILogger<AzureCommunicationEmailSender> _logger;
+
+        public AzureCommunicationEmailSender(
+            IOptions<EmailOptions> options,
+            ILogger<AzureCommunicationEmailSender> logger)
         {
-            logger.LogWarning("Appointment {AppointmentId} has no customer email. Confirmation email skipped.", message.AppointmentId);
-            return;
+            _options = options;
+            _logger = logger;
         }
 
-        if (string.IsNullOrWhiteSpace(options.Value.ConnectionString) || string.IsNullOrWhiteSpace(options.Value.SenderAddress))
+        public async Task SendAppointmentConfirmationAsync(AppointmentBookedMessage message, CancellationToken cancellationToken)
         {
-            logger.LogWarning("Email configuration is missing. Confirmation email for appointment {AppointmentId} skipped.", message.AppointmentId);
-            return;
-        }
-
-        var client = new EmailClient(options.Value.ConnectionString);
-        var emailMessage = new EmailMessage(
-            senderAddress: options.Value.SenderAddress,
-            recipientAddress: message.CustomerEmail,
-            content: new EmailContent("Potwierdzenie rezerwacji wizyty")
+            if (string.IsNullOrWhiteSpace(message.CustomerEmail))
             {
-                PlainText = BuildBody(message)
-            });
+                _logger.LogWarning("Wizyta {AppointmentId} nie ma adresu e-mail klienta. Pominiêto wysy³kê potwierdzenia.", message.AppointmentId);
+                return;
+            }
 
-        await client.SendAsync(WaitUntil.Started, emailMessage, cancellationToken);
-        logger.LogInformation("Confirmation email queued for appointment {AppointmentId} to {CustomerEmail}.", message.AppointmentId, message.CustomerEmail);
-    }
+            if (string.IsNullOrWhiteSpace(_options.Value.ConnectionString) || string.IsNullOrWhiteSpace(_options.Value.SenderAddress))
+            {
+                _logger.LogWarning("Brakuje konfiguracji e-mail. Pominiêto wysy³kê potwierdzenia wizyty {AppointmentId}.", message.AppointmentId);
+                return;
+            }
 
-    private static string BuildBody(AppointmentBookedMessage message)
-    {
-        var customerName = string.IsNullOrWhiteSpace(message.CustomerName) ? "Kliencie" : message.CustomerName;
-        var serviceName = string.IsNullOrWhiteSpace(message.ServiceName) ? message.SalonServiceId : message.ServiceName;
-        var hairdresserName = string.IsNullOrWhiteSpace(message.HairdresserName) ? message.HairdresserId : message.HairdresserName;
+            var client = new EmailClient(_options.Value.ConnectionString);
+            var emailMessage = new EmailMessage(
+                senderAddress: _options.Value.SenderAddress,
+                recipientAddress: message.CustomerEmail,
+                content: new EmailContent("Potwierdzenie rezerwacji wizyty")
+                {
+                    PlainText = BuildBody(message)
+                });
 
-        return $"""
-        Dzien dobry {customerName},
+            await client.SendAsync(WaitUntil.Started, emailMessage, cancellationToken);
+            _logger.LogInformation("Potwierdzenie e-mail dla wizyty {AppointmentId} zosta³o przekazane do wys³ania na adres {CustomerEmail}.", message.AppointmentId, message.CustomerEmail);
+        }
 
-        Twoja wizyta w salonie fryzjerskim zostala potwierdzona.
+        private static string BuildBody(AppointmentBookedMessage message)
+        {
+            var customerName = string.IsNullOrWhiteSpace(message.CustomerName) ? "Kliencie" : message.CustomerName;
+            var serviceName = string.IsNullOrWhiteSpace(message.ServiceName) ? message.SalonServiceId : message.ServiceName;
+            var hairdresserName = string.IsNullOrWhiteSpace(message.HairdresserName) ? message.HairdresserId : message.HairdresserName;
 
-        Usluga: {serviceName}
-        Fryzjer: {hairdresserName}
-        Start: {message.StartAt:yyyy-MM-dd HH:mm}
-        Koniec: {message.EndAt:yyyy-MM-dd HH:mm}
+            return $"""
+            Dzien dobry {customerName},
 
-        Do zobaczenia!
-        Salon fryzjerski
-        """;
+            Twoja wizyta w salonie fryzjerskim zostala potwierdzona.
+
+            Usluga: {serviceName}
+            Fryzjer: {hairdresserName}
+            Data wizyty: {message.StartAt:yyyy-MM-dd HH:mm}
+            
+
+            Do zobaczenia!
+            Salon fryzjerski
+            """;
+        }
     }
 }

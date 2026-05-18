@@ -1,6 +1,7 @@
-namespace HairSalon.Booking.Functions.Email;
-
-public interface IEmailSender
+namespace HairSalon.Booking.Functions.Email
 {
-    Task SendAppointmentConfirmationAsync(AppointmentBookedMessage message, CancellationToken cancellationToken);
+    public interface IEmailSender
+    {
+        Task SendAppointmentConfirmationAsync(AppointmentBookedMessage message, CancellationToken cancellationToken);
+    }
 }

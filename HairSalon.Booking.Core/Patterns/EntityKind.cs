@@ -1,11 +1,12 @@
-namespace HairSalon.Booking.Core.Patterns;
-
-public enum EntityKind
+namespace HairSalon.Booking.Core.Patterns
 {
-    Customer,
-    Hairdresser,
-    SalonService,
-    Appointment,
-    SalonPhoto,
-    AppUser
+    public enum EntityKind
+    {
+        Customer,
+        Hairdresser,
+        SalonService,
+        Appointment,
+        SalonPhoto,
+        AppUser
+    }
 }

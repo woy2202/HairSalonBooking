@@ -1,0 +1,1042 @@
+OPIS WATKOW, ASYNCHRONICZNOSCI I PRZETWARZANIA W TLE W APLIKACJI SALONU FRYZJERSKIEGO
+=====================================================================================
+
+Projekt: HairSalon Booking
+Backend: ASP.NET Core / C#
+Baza danych: Azure Cosmos DB
+Komponenty Azure uzyte w przeplywach asynchronicznych:
+- Azure App Service
+- Azure Cosmos DB
+- Azure Queue Storage
+- Azure Functions
+- Azure Communication Services Email
+- Azure SignalR Service
+- Azure Application Insights / logi
+
+
+1. NAJWAZNIEJSZA INFORMACJA: CZY W APLIKACJI SA RECZNIE TWORZONE WATKI?
+------------------------------------------------------------------------
+
+W aplikacji NIE tworzymy recznie watkow przez:
+
+    new Thread(...)
+    Task.Run(...)
+    BackgroundWorker
+
+To jest celowe. W nowoczesnych aplikacjach ASP.NET Core zwykle nie tworzy sie recznie watkow, bo serwer sam zarzadza pula watkow. Zamiast tego uzywamy:
+
+    async
+    await
+    Task<T>
+    CancellationToken
+    Azure Queue Storage
+    Azure Functions
+    SignalR
+
+Czyli w praktyce mamy kilka "watkow pracy" albo "przeplywow asynchronicznych", ale nie sa to recznie zarzadzane watki systemowe.
+
+Najprosciej:
+
+    - ASP.NET Core obsluguje request HTTP z puli watkow.
+    - Gdy kod czeka na Cosmos DB, Blob Storage, Queue Storage albo Email API, uzywa await.
+    - await zwalnia watek serwera na czas oczekiwania.
+    - Po zakonczeniu operacji I/O wykonanie jest kontynuowane.
+    - Dluzsze zadania, np. wyslanie maila, sa oddelegowane do Azure Queue + Azure Function.
+
+To jest poprawny, skalowalny styl pisania backendu w C#.
+
+
+2. DLACZEGO UZYLISMY ASYNCHRONICZNOSCI?
+---------------------------------------
+
+W aplikacji salonu fryzjerskiego wiele operacji zalezy od zewnetrznych uslug:
+
+    - zapis wizyty do Cosmos DB,
+    - odczyt klienta, fryzjera i uslugi z Cosmos DB,
+    - wrzucenie wiadomosci do Azure Queue Storage,
+    - wyslanie maila przez Azure Communication Services,
+    - wyslanie powiadomienia SignalR,
+    - zapis plikow do Azure Blob Storage.
+
+Kazda z tych operacji moze trwac dluzej niz zwykle obliczenie w pamieci, bo wymaga komunikacji przez siec. Gdybysmy robili to synchronicznie, watek serwera bylby zablokowany i nie moglby obslugiwac innych uzytkownikow.
+
+Dlatego metody sa zapisane jako:
+
+    public async Task<...>
+
+i korzystaja z:
+
+    await ...
+
+Dzieki temu API moze obslugiwac wielu klientow jednoczesnie bez recznego tworzenia watkow.
+
+
+3. GLOWNY WATEK BIZNESOWY: KLIENT TWORZY WIZYTE
+------------------------------------------------
+
+Najwazniejszy scenariusz aplikacji:
+
+    1. Klient tworzy wizyte w Swaggerze albo w przyszlej aplikacji frontendowej.
+    2. Request trafia do AppointmentsController.
+    3. Controller przekazuje dane do AppointmentBookingFacade.
+    4. Facade sprawdza klienta, fryzjera, usluge i dostepnosc terminu.
+    5. Wizyta jest zapisywana w Cosmos DB.
+    6. Aplikacja publikuje zdarzenie "appointment booked".
+    7. Kilka handlerow reaguje na zdarzenie:
+       - zapis informacji do Blob Storage,
+       - wrzucenie wiadomosci do Azure Queue,
+       - wyslanie powiadomienia SignalR.
+    8. Azure Function odbiera wiadomosc z kolejki.
+    9. Azure Function wysyla maila z potwierdzeniem wizyty.
+
+To jest rozdzielone na kilka mniejszych przeplywow, zeby endpoint tworzenia wizyty nie musial bezposrednio robic wszystkiego sam.
+
+
+4. WATEK HTTP: AppointmentsController
+-------------------------------------
+
+Plik:
+
+    HairSalon.Booking.Api/Controllers/AppointmentsController.cs
+
+Najwazniejsze linie:
+
+    linia 16:
+    public async Task<ActionResult<IReadOnlyList<Appointment>>> GetAll(CancellationToken cancellationToken)
+
+    linia 20:
+    public async Task<ActionResult<Appointment>> GetById(string id, CancellationToken cancellationToken)
+
+    linia 27:
+    public async Task<ActionResult<Appointment>> Create(AppointmentRequest request, CancellationToken cancellationToken)
+
+    linia 32:
+    var created = await bookingFacade.BookAsync(appointment, cancellationToken);
+
+    linia 42:
+    public async Task<ActionResult<Appointment>> Update(...)
+
+    linia 55:
+    public async Task<IActionResult> Delete(...)
+
+Co robi ten kod?
+
+AppointmentsController odpowiada za endpointy HTTP dotyczace wizyt. Gdy uzytkownik wywoluje POST /api/Appointments, wykonywana jest metoda Create.
+
+Najwazniejsza jest linia 32:
+
+    var created = await bookingFacade.BookAsync(appointment, cancellationToken);
+
+Ta linia przekazuje tworzenie wizyty do warstwy biznesowej. Controller nie sprawdza sam, czy klient istnieje, czy fryzjer jest aktywny, czy usluga jest dostepna. To robi Facade.
+
+Po co tu async/await?
+
+Tworzenie wizyty wymaga odczytu i zapisu w Cosmos DB, a pozniej uruchomienia dodatkowych handlerow. To sa operacje I/O. await pozwala nie blokowac watku HTTP.
+
+Co robi CancellationToken?
+
+CancellationToken pozwala przerwac prace, jesli klient przerwie request, polaczenie zostanie zamkniete albo serwer bedzie musial anulowac operacje. Ten token jest przekazywany dalej do repozytoriow, kolejki i innych operacji.
+
+
+5. WATEK BIZNESOWY: AppointmentBookingFacade
+--------------------------------------------
+
+Plik:
+
+    HairSalon.Booking.Core/Services/AppointmentBookingFacade.cs
+
+Najwazniejsze linie:
+
+    linia 16:
+    public async Task<Appointment> BookAsync(Appointment appointment, CancellationToken cancellationToken)
+
+    linie 18-20:
+    var customer = await customers.GetAsync(...)
+    var hairdresser = await hairdressers.GetAsync(...)
+    var service = await services.GetAsync(...)
+
+    linie 22-35:
+    sprawdzenie, czy klient, fryzjer i usluga istnieja
+
+    linia 37:
+    appointment.EndAt = appointment.StartAt.AddMinutes(service.DurationMinutes);
+
+    linia 38:
+    await EnsureSlotIsFreeAsync(appointment, cancellationToken);
+
+    linia 40:
+    var created = await appointments.CreateAsync(appointment, cancellationToken);
+
+    linia 41:
+    await eventPublisher.PublishAppointmentBookedAsync(created, cancellationToken);
+
+Co robi ten kod?
+
+AppointmentBookingFacade to glowna metoda biznesowa odpowiedzialna za rezerwacje wizyty.
+
+W jednym miejscu koordynuje:
+
+    - pobranie klienta,
+    - pobranie fryzjera,
+    - pobranie uslugi,
+    - walidacje danych,
+    - wyliczenie konca wizyty,
+    - sprawdzenie kolizji terminow,
+    - zapis wizyty,
+    - opublikowanie zdarzenia po utworzeniu wizyty.
+
+Dlaczego to jest wazne?
+
+Controller pozostaje prosty, a cala logika biznesowa jest w jednym miejscu. To jest przyklad wzorca Facade. Na obronie mozna powiedziec:
+
+    "Facade ukrywa zlozonosc procesu rezerwacji. Controller wywoluje jedna metode BookAsync, a Facade wykonuje cala sekwencje operacji."
+
+Po co async/await?
+
+Linie 18-20 i 40 komunikuja sie z repozytoriami, ktore moga korzystac z Cosmos DB. To sa operacje sieciowe. await sprawia, ze aplikacja nie blokuje watku serwera.
+
+Po co linia 41?
+
+    await eventPublisher.PublishAppointmentBookedAsync(created, cancellationToken);
+
+To jest moment, w ktorym aplikacja informuje reszte systemu:
+
+    "Wizyta zostala utworzona, teraz inne komponenty moga zareagowac."
+
+Dzieki temu wysylka maila, kolejka i SignalR nie sa sztywno wpisane w Controller.
+
+
+6. WATEK ZDARZENIOWY: BookingEventPublisher
+-------------------------------------------
+
+Plik:
+
+    HairSalon.Booking.Core/Events/BookingEventPublisher.cs
+
+Najwazniejsze linie:
+
+    linia 6:
+    public interface IBookingEventPublisher
+
+    linia 9:
+    Task PublishAppointmentBookedAsync(Appointment appointment, CancellationToken cancellationToken);
+
+    linia 12:
+    public sealed class BookingEventPublisher(IEnumerable<IAppointmentBookedHandler> handlers)
+
+    linia 16:
+    public async Task PublishAppointmentBookedAsync(...)
+
+    linie 20-23:
+    foreach (var handler in handlers)
+    {
+        await handler.HandleAsync(appointment, cancellationToken);
+    }
+
+Co robi ten kod?
+
+BookingEventPublisher publikuje zdarzenie utworzenia wizyty. Nie wie szczegolowo, co stanie sie po utworzeniu wizyty. On tylko przechodzi przez liste handlerow i uruchamia kazdy z nich.
+
+W aplikacji handlerami sa m.in.:
+
+    - AzureBlobAppointmentSummaryHandler,
+    - AzureQueueAppointmentBookedHandler,
+    - SignalRAppointmentBookedHandler.
+
+Jaki wzorzec tu widac?
+
+To jest wzorzec Observer/Event. Glowny kod rezerwacji nie musi znac szczegolow kazdej reakcji. Jesli w przyszlosci chcesz dodac np. SMS, mozesz dodac kolejny handler bez przepisywania AppointmentsController.
+
+Czy to sa osobne watki?
+
+Nie w sensie recznego tworzenia Thread. To jest sekwencyjne wywolanie asynchronicznych handlerow. Kazdy handler moze jednak wykonywac operacje I/O asynchronicznie.
+
+Dlaczego to jest dobre?
+
+Kod jest elastyczny. Rezerwacja wizyty i dodatkowe reakcje sa rozdzielone.
+
+
+7. REJESTRACJA HANDLEROW: ServiceCollectionExtensions
+-----------------------------------------------------
+
+Plik:
+
+    HairSalon.Booking.Api/Infrastructure/ServiceCollectionExtensions.cs
+
+Najwazniejsze linie:
+
+    linia 22:
+    services.AddScoped<IAppointmentBookingFacade, AppointmentBookingFacade>();
+
+    linia 23:
+    services.AddScoped<IAppointmentBookedHandler, AzureBlobAppointmentSummaryHandler>();
+
+    linia 24:
+    services.AddScoped<IAppointmentBookedHandler, AzureQueueAppointmentBookedHandler>();
+
+    linia 25:
+    services.AddScoped<IAppointmentBookedHandler, SignalRAppointmentBookedHandler>();
+
+    linia 26:
+    services.AddScoped<IBookingEventPublisher, BookingEventPublisher>();
+
+    linia 29:
+    var signalRBuilder = services.AddSignalR();
+
+    linie 30-33:
+    if (!string.IsNullOrWhiteSpace(options.SignalR.ConnectionString))
+    {
+        signalRBuilder.AddAzureSignalR(options.SignalR.ConnectionString);
+    }
+
+    linia 47:
+    services.AddSingleton(_ => new CosmosClient(options.Cosmos.ConnectionString));
+
+    linia 49:
+    services.AddScoped(typeof(IBookingRepository<>), typeof(CosmosBookingRepository<>));
+
+Co robi ten kod?
+
+Ten plik konfiguruje Dependency Injection, czyli mechanizm wstrzykiwania zaleznosci w ASP.NET Core.
+
+Najwazniejsza rzecz dla watkow/przeplywow:
+
+    - linie 23-25 rejestruja trzy reakcje na utworzenie wizyty,
+    - linia 26 rejestruje publisher, ktory te reakcje wywoluje,
+    - linie 29-33 podpinaja Azure SignalR Service,
+    - linie 47-49 podpinaja Cosmos DB.
+
+Po co to jest?
+
+Dzieki DI klasa AppointmentBookingFacade nie tworzy recznie obiektow. Dostaje gotowe zaleznosci od kontenera ASP.NET Core. To ulatwia testowanie i rozbudowe.
+
+Co znaczy AddScoped?
+
+AddScoped oznacza, ze obiekt zyje w ramach jednego requestu HTTP. Dla endpointu tworzenia wizyty kazdy request dostaje swoj zestaw zaleznosci.
+
+Co znaczy AddSingleton przy CosmosClient?
+
+CosmosClient jest ciezkim obiektem komunikacyjnym i powinien byc wspoldzielony. Dlatego jest Singletonem. To jest zgodne z dobra praktyka dla SDK Azure Cosmos DB.
+
+
+8. WATEK KOLEJKI: AzureQueueAppointmentBookedHandler
+----------------------------------------------------
+
+Plik:
+
+    HairSalon.Booking.Api/Infrastructure/AzureQueueAppointmentBookedHandler.cs
+
+Najwazniejsze linie:
+
+    linia 19:
+    public async Task HandleAsync(Appointment appointment, CancellationToken cancellationToken)
+
+    linie 21-26:
+    sprawdzenie, czy connection string do Storage istnieje
+
+    linie 28-31:
+    var queue = new QueueClient(..., new QueueClientOptions { MessageEncoding = QueueMessageEncoding.Base64 });
+
+    linia 33:
+    await queue.CreateIfNotExistsAsync(...)
+
+    linie 35-37:
+    pobranie klienta, fryzjera i uslugi
+
+    linie 39-51:
+    zbudowanie payloadu JSON
+
+    linia 53:
+    await queue.SendMessageAsync(payload, cancellationToken);
+
+    linie 54-58:
+    zapis logu, ze wiadomosc zostala wyslana
+
+Co robi ten kod?
+
+Ten handler reaguje na zdarzenie utworzenia wizyty i wrzuca wiadomosc do Azure Queue Storage.
+
+Nie wysyla maila sam. Tylko przygotowuje wiadomosc dla funkcji serverless.
+
+Przyklad danych wrzucanych do kolejki:
+
+    - appointmentId,
+    - CustomerId,
+    - HairdresserId,
+    - SalonServiceId,
+    - StartAt,
+    - EndAt,
+    - customerEmail,
+    - customerName,
+    - hairdresserName,
+    - serviceName.
+
+Po co uzywamy kolejki?
+
+Kolejka oddziela proces tworzenia wizyty od procesu wysylania maila.
+
+Bez kolejki:
+
+    Klient tworzy wizyte -> API zapisuje wizyte -> API wysyla maila -> klient czeka
+
+Z kolejka:
+
+    Klient tworzy wizyte -> API zapisuje wizyte -> API wrzuca wiadomosc do kolejki -> klient szybko dostaje odpowiedz
+    Azure Function pozniej odbiera wiadomosc i wysyla maila
+
+To jest lepsze, bo wysylka maila moze byc wolna albo chwilowo niedostepna, a sama rezerwacja nadal moze zostac zapisana.
+
+Dlaczego linia 31 jest wazna?
+
+    MessageEncoding = QueueMessageEncoding.Base64
+
+Azure Functions Queue Trigger w tej konfiguracji oczekuje Base64. Jawne ustawienie kodowania zmniejsza ryzyko problemow z odczytem wiadomosci.
+
+Dlaczego linia 53 jest kluczowa?
+
+    await queue.SendMessageAsync(payload, cancellationToken);
+
+To jest faktyczne wyslanie wiadomosci do kolejki. Jesli ta linia sie wykona, w Azure Storage pojawia sie komunikat dla funkcji.
+
+
+9. WATEK SERVERLESS: AppointmentBookedQueueFunction
+---------------------------------------------------
+
+Plik:
+
+    HairSalon.Booking.Functions/AppointmentBookedQueueFunction.cs
+
+Najwazniejsze linie:
+
+    linie 12-15:
+    JsonSerializerOptions z PropertyNameCaseInsensitive = true
+
+    linia 17:
+    [Function(nameof(AppointmentBookedQueueFunction))]
+
+    linia 18:
+    public async Task Run([QueueTrigger("booking-notifications", Connection = "AzureWebJobsStorage")] string message, CancellationToken cancellationToken)
+
+    linia 20:
+    logger.LogInformation("Queue message received by AppointmentBookedQueueFunction.");
+
+    linia 22:
+    var appointment = JsonSerializer.Deserialize<AppointmentBookedMessage>(message, JsonOptions);
+
+    linie 37-46:
+    try/catch wokol wysylki maila
+
+    linia 39:
+    await emailSender.SendAppointmentConfirmationAsync(appointment, cancellationToken);
+
+    linie 50-60:
+    record AppointmentBookedMessage
+
+Co robi ten kod?
+
+To jest Azure Function uruchamiana automatycznie, kiedy w kolejce booking-notifications pojawi sie nowa wiadomosc.
+
+Nie trzeba wywolywac jej recznie przez HTTP. Mechanizm Azure Functions sam odpytuje kolejke i uruchamia metode Run.
+
+Najwazniejsza linia:
+
+    [QueueTrigger("booking-notifications", Connection = "AzureWebJobsStorage")]
+
+Oznacza:
+
+    - sluchaj kolejki booking-notifications,
+    - polacz sie z Azure Storage przez zmienna AzureWebJobsStorage,
+    - gdy pojawi sie wiadomosc, przekaz jej tresc do parametru message.
+
+Po co uzywamy Azure Function?
+
+Azure Function robi prace w tle. Nie obciaza requestu HTTP w API. Moze dzialac niezaleznie od App Service.
+
+Co sie stanie, gdy funkcja ma blad?
+
+Azure Functions sprobuje przetworzyc wiadomosc kilka razy. Jesli nadal sie nie uda, wiadomosc trafia do kolejki:
+
+    booking-notifications-poison
+
+To widzielismy podczas testow. Poison queue oznacza, ze funkcja odebrala wiadomosc, ale przetwarzanie zakonczylo sie bledem.
+
+Dlaczego dodano try/catch?
+
+Linie 37-46 pozwalaja zapisac dokladny blad do logow. Bez tego widzielibysmy tylko, ze wiadomosc trafila do poison queue, ale trudniej byloby znalezc przyczyne.
+
+Dlaczego PropertyNameCaseInsensitive jest wazne?
+
+API moglo wysylac JSON z polami typu:
+
+    appointmentId
+    customerEmail
+
+a rekord w C# ma:
+
+    AppointmentId
+    CustomerEmail
+
+Ustawienie case-insensitive pozwala poprawnie odczytac dane niezaleznie od wielkosci liter.
+
+
+10. WATEK MAILOWY: AzureCommunicationEmailSender
+------------------------------------------------
+
+Plik:
+
+    HairSalon.Booking.Functions/Email/AzureCommunicationEmailSender.cs
+
+Najwazniejsze linie:
+
+    linia 12:
+    public async Task SendAppointmentConfirmationAsync(...)
+
+    linie 14-18:
+    sprawdzenie, czy klient ma email
+
+    linie 20-24:
+    sprawdzenie konfiguracji Email__ConnectionString i Email__SenderAddress
+
+    linia 26:
+    var client = new EmailClient(options.Value.ConnectionString);
+
+    linie 27-33:
+    zbudowanie EmailMessage
+
+    linia 35:
+    await client.SendAsync(WaitUntil.Started, emailMessage, cancellationToken);
+
+    linie 39-58:
+    zbudowanie tresci maila
+
+Co robi ten kod?
+
+Ten kod wysyla maila z potwierdzeniem wizyty przez Azure Communication Services Email.
+
+Najpierw sprawdza:
+
+    - czy klient ma adres email,
+    - czy konfiguracja email jest wpisana.
+
+Jesli brakuje danych, funkcja nie wywala aplikacji, tylko loguje ostrzezenie i konczy prace.
+
+Najwazniejsza linia:
+
+    await client.SendAsync(WaitUntil.Started, emailMessage, cancellationToken);
+
+Ta linia przekazuje maila do Azure Communication Services. WaitUntil.Started oznacza, ze kod czeka tylko do momentu rozpoczecia operacji wysylki po stronie Azure, a niekoniecznie do pelnego dostarczenia maila do skrzynki.
+
+Dlaczego mail jest wysylany w Function, a nie w API?
+
+Bo wysylka maila jest zadaniem pobocznym. Dla klienta najwazniejsze jest, aby wizyta zostala utworzona. Mail moze zostac obsluzony chwile pozniej w tle.
+
+Co musi byc ustawione w Azure?
+
+W booking-function musza istniec zmienne:
+
+    Email__ConnectionString
+    Email__SenderAddress
+    AzureWebJobsStorage
+
+Email__ConnectionString pochodzi z zasobu Azure Communication Services.
+
+Email__SenderAddress to adres MailFrom z domeny email, np. DoNotReply@...azurecomm.net.
+
+
+11. WATEK POWIADOMIEN REALTIME: SignalRAppointmentBookedHandler
+---------------------------------------------------------------
+
+Plik:
+
+    HairSalon.Booking.Api/Infrastructure/SignalRAppointmentBookedHandler.cs
+
+Najwazniejsze linie:
+
+    linia 8:
+    public sealed class SignalRAppointmentBookedHandler(IHubContext<BookingNotificationsHub> hubContext)
+
+    linie 12-21:
+    zbudowanie payloadu z informacjami o wizycie
+
+    linia 23:
+    await hubContext.Clients.All.SendAsync("appointmentBooked", payload, cancellationToken);
+
+    linie 24-25:
+    await hubContext.Clients.Group($"hairdresser:{appointment.HairdresserId}")
+        .SendAsync("hairdresserAppointmentBooked", payload, cancellationToken);
+
+Co robi ten kod?
+
+Po utworzeniu wizyty handler SignalR wysyla powiadomienie realtime do podlaczonych klientow.
+
+Linia 23 wysyla powiadomienie do wszystkich:
+
+    appointmentBooked
+
+Linie 24-25 wysylaja powiadomienie tylko do grupy konkretnego fryzjera:
+
+    hairdresser:{appointment.HairdresserId}
+
+Po co uzywamy SignalR?
+
+SignalR sluzy do natychmiastowych powiadomien. Na przyklad:
+
+    - panel admina moze od razu zobaczyc nowa wizyte,
+    - fryzjer moze dostac powiadomienie o nowej rezerwacji,
+    - frontend nie musi caly czas odpytywac API.
+
+Czy SignalR dubluje kolejke?
+
+Nie. To sa inne zadania.
+
+    Queue + Function:
+        niezawodne przetwarzanie w tle, np. email.
+
+    SignalR:
+        natychmiastowa informacja do uzytkownika online.
+
+Jesli uzytkownik jest offline, SignalR mu tego nie dostarczy. Ale kolejka nadal moze wyslac maila.
+
+
+12. HUB SIGNALR: BookingNotificationsHub
+----------------------------------------
+
+Plik:
+
+    HairSalon.Booking.Api/Hubs/BookingNotificationsHub.cs
+
+Najwazniejsze linie:
+
+    linia 5:
+    public sealed class BookingNotificationsHub : Hub
+
+    linie 7-10:
+    public Task JoinHairdresserGroup(string hairdresserId)
+
+    linie 12-15:
+    public Task LeaveHairdresserGroup(string hairdresserId)
+
+Co robi ten kod?
+
+Hub to punkt polaczenia dla klientow SignalR. Aplikacja frontendowa moze polaczyc sie z hubem i dolaczyc do grupy konkretnego fryzjera.
+
+Najwazniejsza linia:
+
+    Groups.AddToGroupAsync(Context.ConnectionId, $"hairdresser:{hairdresserId}");
+
+Ta linia przypisuje aktualne polaczenie do grupy.
+
+Przyklad:
+
+    fryzjer o id 123 dolacza do grupy hairdresser:123
+
+Gdy pojawi sie nowa wizyta dla tego fryzjera, SignalRAppointmentBookedHandler moze wyslac powiadomienie tylko do tej grupy.
+
+
+13. KONFIGURACJA SIGNALR I API: Program.cs
+------------------------------------------
+
+Plik:
+
+    HairSalon.Booking.Api/Program.cs
+
+Najwazniejsze linie:
+
+    linie 9-13:
+    podlaczenie Azure Key Vault
+
+    linia 15:
+    builder.Services.AddApplicationInsightsTelemetry();
+
+    linie 17-27:
+    konfiguracja CORS dla SignalR
+
+    linia 41:
+    builder.Services.AddBookingApplication(builder.Configuration);
+
+    linia 56:
+    app.MapControllers();
+
+    linia 57:
+    app.MapHub<BookingNotificationsHub>("/hubs/booking-notifications");
+
+Co robi ten kod?
+
+Program.cs uruchamia cala aplikacje ASP.NET Core.
+
+Linia 41 podlacza wszystkie serwisy aplikacji, czyli repozytoria, facade, handlery, SignalR i Cosmos DB.
+
+Linia 56 mapuje kontrolery HTTP, np.:
+
+    /api/Appointments
+    /api/Customers
+    /api/Hairdressers
+
+Linia 57 mapuje hub SignalR:
+
+    /hubs/booking-notifications
+
+Bez tej linii klient SignalR nie mialby endpointu do polaczenia.
+
+Po co Application Insights?
+
+Application Insights pozwala monitorowac dzialanie aplikacji, zbierac logi, requesty, bledy i informacje diagnostyczne.
+
+
+14. WATEK DOSTEPU DO COSMOS DB: CosmosBookingRepository
+-------------------------------------------------------
+
+Plik:
+
+    HairSalon.Booking.Api/Data/CosmosBookingRepository.cs
+
+Najwazniejsze linie:
+
+    linia 12:
+    public async Task<IReadOnlyList<T>> GetAllAsync(...)
+
+    linia 21:
+    var page = await iterator.ReadNextAsync(cancellationToken);
+
+    linia 28:
+    public async Task<T?> GetAsync(...)
+
+    linia 32:
+    return await _container.ReadItemAsync<T>(id, new PartitionKey(id), cancellationToken: cancellationToken);
+
+    linia 40:
+    public async Task<T> CreateAsync(...)
+
+    linia 44:
+    var response = await _container.CreateItemAsync(entity, new PartitionKey(entity.id), cancellationToken: cancellationToken);
+
+    linia 48:
+    public async Task<T> UpsertAsync(...)
+
+    linia 51:
+    var response = await _container.UpsertItemAsync(entity, new PartitionKey(entity.id), cancellationToken: cancellationToken);
+
+    linia 55:
+    public async Task DeleteAsync(...)
+
+    linia 57:
+    await _container.DeleteItemAsync<T>(id, new PartitionKey(id), cancellationToken: cancellationToken);
+
+Co robi ten kod?
+
+CosmosBookingRepository to uniwersalne repozytorium do pracy z Cosmos DB. Obsluguje CRUD dla roznych typow encji:
+
+    - Customer,
+    - Hairdresser,
+    - SalonService,
+    - Appointment,
+    - SalonPhoto,
+    - AppUser.
+
+Po co async/await?
+
+Kazda operacja na Cosmos DB to komunikacja z chmura. await pozwala nie blokowac watku serwera podczas oczekiwania na odpowiedz bazy.
+
+Dlaczego PartitionKey(id)?
+
+W Twojej bazie Cosmos DB kontenery maja partition key:
+
+    /id
+
+Dlatego kod uzywa:
+
+    new PartitionKey(id)
+
+przy odczycie, zapisie i usuwaniu.
+
+
+15. PROGRAM AZURE FUNCTIONS: HairSalon.Booking.Functions/Program.cs
+-------------------------------------------------------------------
+
+Plik:
+
+    HairSalon.Booking.Functions/Program.cs
+
+Najwazniejsze linie:
+
+    linie 10-18:
+    konfiguracja Key Vault
+
+    linia 19:
+    .ConfigureFunctionsWorkerDefaults()
+
+    linie 22-23:
+    Application Insights dla Functions
+
+    linia 24:
+    services.Configure<EmailOptions>(context.Configuration.GetSection("Email"));
+
+    linia 25:
+    services.AddSingleton<IEmailSender, AzureCommunicationEmailSender>();
+
+    linia 29:
+    host.Run();
+
+Co robi ten kod?
+
+To jest plik startowy projektu Azure Functions.
+
+Najwazniejsze:
+
+    - uruchamia host funkcji,
+    - podlacza Application Insights,
+    - wczytuje konfiguracje email,
+    - rejestruje AzureCommunicationEmailSender.
+
+Po co Singleton dla IEmailSender?
+
+Email sender nie trzyma stanu konkretnego requestu HTTP. Moze byc wspoldzielony przez wywolania funkcji.
+
+
+16. CALY PRZEPLYW KROK PO KROKU
+-------------------------------
+
+Scenariusz: klient rezerwuje wizyte i dostaje maila.
+
+Krok 1:
+Klient wysyla POST /api/Appointments.
+
+Krok 2:
+AppointmentsController.Create odbiera request.
+
+Kod:
+
+    AppointmentsController.cs, linia 27
+
+Krok 3:
+Controller tworzy obiekt Appointment i wywoluje:
+
+    await bookingFacade.BookAsync(...)
+
+Kod:
+
+    AppointmentsController.cs, linia 32
+
+Krok 4:
+AppointmentBookingFacade pobiera klienta, fryzjera i usluge.
+
+Kod:
+
+    AppointmentBookingFacade.cs, linie 18-20
+
+Krok 5:
+Facade sprawdza, czy dane sa poprawne.
+
+Kod:
+
+    AppointmentBookingFacade.cs, linie 22-35
+
+Krok 6:
+Facade liczy koniec wizyty i sprawdza kolizje terminow.
+
+Kod:
+
+    AppointmentBookingFacade.cs, linie 37-38
+
+Krok 7:
+Facade zapisuje wizyte do Cosmos DB.
+
+Kod:
+
+    AppointmentBookingFacade.cs, linia 40
+
+Krok 8:
+Facade publikuje zdarzenie utworzenia wizyty.
+
+Kod:
+
+    AppointmentBookingFacade.cs, linia 41
+
+Krok 9:
+BookingEventPublisher uruchamia wszystkie handlery.
+
+Kod:
+
+    BookingEventPublisher.cs, linie 20-23
+
+Krok 10:
+AzureQueueAppointmentBookedHandler wrzuca wiadomosc do kolejki.
+
+Kod:
+
+    AzureQueueAppointmentBookedHandler.cs, linia 53
+
+Krok 11:
+SignalRAppointmentBookedHandler wysyla powiadomienie realtime.
+
+Kod:
+
+    SignalRAppointmentBookedHandler.cs, linie 23-25
+
+Krok 12:
+Azure Function automatycznie odbiera wiadomosc z kolejki.
+
+Kod:
+
+    AppointmentBookedQueueFunction.cs, linia 18
+
+Krok 13:
+Function deserializuje wiadomosc.
+
+Kod:
+
+    AppointmentBookedQueueFunction.cs, linia 22
+
+Krok 14:
+Function wywoluje email sender.
+
+Kod:
+
+    AppointmentBookedQueueFunction.cs, linia 39
+
+Krok 15:
+AzureCommunicationEmailSender tworzy i wysyla maila.
+
+Kod:
+
+    AzureCommunicationEmailSender.cs, linie 26-35
+
+
+17. DLACZEGO TO JEST DOBRA ARCHITEKTURA?
+----------------------------------------
+
+1. API szybko odpowiada klientowi.
+
+API nie musi czekac na pelna dostawe maila. Po zapisaniu wizyty wrzuca wiadomosc do kolejki.
+
+2. Mail jest obslugiwany niezaleznie.
+
+Jesli chwilowo wystapi problem z Azure Communication Services, wizyta nadal moze byc zapisana. Wiadomosc z kolejki moze byc ponowiona.
+
+3. System jest latwiejszy do rozbudowy.
+
+Mozna dodac kolejny handler, np. SMS, bez zmieniania kontrolera wizyt.
+
+4. SignalR nie dubluje maili.
+
+SignalR sluzy do powiadomien online, mail do potwierdzen offline.
+
+5. Cosmos DB i Storage sa wywolywane asynchronicznie.
+
+Serwer nie blokuje watkow podczas komunikacji z chmura.
+
+
+18. CO POWIEDZIEC NA OBRONIE O WATKACH?
+---------------------------------------
+
+Mozesz powiedziec tak:
+
+    "W aplikacji nie tworze recznie watkow przez Thread ani Task.Run. Zastosowalem model asynchroniczny ASP.NET Core oparty o async/await, Task i CancellationToken. Operacje sieciowe, takie jak Cosmos DB, Queue Storage, SignalR i Email, sa wykonywane asynchronicznie, dzieki czemu watki serwera nie sa blokowane."
+
+Nastepnie:
+
+    "Dodatkowo dluzsze zadania, takie jak wyslanie maila z potwierdzeniem wizyty, zostaly przeniesione do Azure Queue Storage i Azure Functions. API zapisuje wizyte i wrzuca komunikat do kolejki, a funkcja serverless odbiera go w tle i wysyla mail."
+
+I jeszcze:
+
+    "SignalR jest osobnym mechanizmem realtime. Wysyla natychmiastowe powiadomienie do podlaczonych klientow, ale nie zastepuje kolejki, bo SignalR nie jest mechanizmem trwalego przetwarzania."
+
+
+19. NAJWAZNIEJSZE POJECIA
+-------------------------
+
+async:
+Oznacza, ze metoda moze wykonywac operacje asynchroniczne i zwracac Task.
+
+await:
+Oznacza, ze kod czeka na zakonczenie operacji, ale nie blokuje watku.
+
+Task:
+Reprezentuje prace, ktora zakonczy sie w przyszlosci.
+
+CancellationToken:
+Pozwala przerwac operacje, np. gdy request HTTP zostanie anulowany.
+
+Azure Queue Storage:
+Kolejka komunikatow. Oddziela zapis wizyty od wysylki maila.
+
+Azure Function:
+Kod serverless uruchamiany automatycznie, gdy pojawi sie wiadomosc w kolejce.
+
+Poison queue:
+Kolejka bledow. Trafiaja tam wiadomosci, ktorych funkcja nie potrafila przetworzyc po kilku probach.
+
+SignalR:
+Technologia do komunikacji realtime z klientem.
+
+Application Insights:
+Monitoring i logi aplikacji.
+
+
+20. JAKIE "WATKI" MOZNA WYROZNIC W APLIKACJI?
+---------------------------------------------
+
+1. Watek HTTP requestu
+   Obsluguje wywolania Swagger/API.
+   Przyklad: AppointmentsController.
+
+2. Watek biznesowy rezerwacji
+   Waliduje i zapisuje wizyte.
+   Przyklad: AppointmentBookingFacade.
+
+3. Watek zdarzeniowy
+   Uruchamia reakcje po utworzeniu wizyty.
+   Przyklad: BookingEventPublisher.
+
+4. Watek kolejki
+   Wrzuca komunikat do Azure Queue Storage.
+   Przyklad: AzureQueueAppointmentBookedHandler.
+
+5. Watek serverless
+   Odbiera komunikat z kolejki i dziala w tle.
+   Przyklad: AppointmentBookedQueueFunction.
+
+6. Watek mailowy
+   Wysyla potwierdzenie rezerwacji.
+   Przyklad: AzureCommunicationEmailSender.
+
+7. Watek realtime
+   Wysyla powiadomienia przez SignalR.
+   Przyklad: SignalRAppointmentBookedHandler i BookingNotificationsHub.
+
+8. Watek dostepu do danych
+   Obsluguje asynchroniczny CRUD w Cosmos DB.
+   Przyklad: CosmosBookingRepository.
+
+
+21. PODSUMOWANIE
+----------------
+
+W aplikacji zastosowano nowoczesny model asynchroniczny zamiast recznego zarzadzania watkami.
+
+Najwazniejszy przeplyw:
+
+    POST /api/Appointments
+        -> AppointmentBookingFacade
+        -> Cosmos DB
+        -> BookingEventPublisher
+        -> Azure Queue Storage
+        -> Azure Function
+        -> Azure Communication Services Email
+
+Rownolegle:
+
+    POST /api/Appointments
+        -> SignalRAppointmentBookedHandler
+        -> Azure SignalR Service
+        -> powiadomienie realtime
+
+Najwazniejsze korzysci:
+
+    - aplikacja nie blokuje watkow serwera,
+    - wysylka maila dziala w tle,
+    - system jest odporniejszy na chwilowe bledy,
+    - latwo dodac kolejne reakcje po utworzeniu wizyty,
+    - SignalR daje powiadomienia natychmiastowe,
+    - Azure Queue i Azure Function daja przetwarzanie niezawodne.
+

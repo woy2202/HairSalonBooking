@@ -1,8 +1,13 @@
 using HairSalon.Booking.Core.Models;
 
-namespace HairSalon.Booking.Api.Model;
+namespace HairSalon.Booking.Api.Model
+{
+    public sealed class AssignUserRoleRequest
+    {
+        public UserRole Role { get; set; }
 
-public sealed record AssignUserRoleRequest(
-    UserRole Role,
-    string? CustomerId,
-    string? HairdresserId);
+        public string? CustomerId { get; set; }
+
+        public string? HairdresserId { get; set; }
+    }
+}

@@ -1,86 +1,110 @@
 using HairSalon.Booking.Api.Hubs;
+using HairSalon.Booking.Api.Infrastructure;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 
-namespace HairSalon.Booking.Api.Controllers;
-
-[ApiController]
-[Route("api/[controller]")]
-public sealed class NotificationsController(IHubContext<BookingNotificationsHub> hubContext) : ControllerBase
+namespace HairSalon.Booking.Api.Controllers
 {
-    [HttpGet("signalr-test")]
-    public ContentResult SignalRTestPage()
+    [ApiController]
+    [Route("api/[controller]")]
+    public sealed class NotificationsController : ControllerBase
     {
-        const string html = """
-        <!doctype html>
-        <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>SignalR Test</title>
-          <style>
-            body { font-family: Arial, sans-serif; margin: 32px; }
-            pre { padding: 16px; background: #111827; color: #d1fae5; min-height: 220px; white-space: pre-wrap; }
-            button { padding: 10px 14px; cursor: pointer; }
-          </style>
-        </head>
-        <body>
-          <h1>SignalR Test</h1>
-          <button id="testButton">Send test notification</button>
-          <pre id="log"></pre>
+        private readonly IHubContext<BookingNotificationsHub> _hubContext;
+        private readonly ICurrentUserService _currentUser;
 
-          <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.7/dist/browser/signalr.min.js"></script>
-          <script>
-            const log = document.getElementById("log");
-            const button = document.getElementById("testButton");
+        public NotificationsController(
+            IHubContext<BookingNotificationsHub> hubContext,
+            ICurrentUserService currentUser)
+        {
+            _hubContext = hubContext;
+            _currentUser = currentUser;
+        }
 
-            function write(message) {
-              log.textContent += message + "\n";
+        [HttpGet("signalr-test")]
+        public async Task<IActionResult> SignalRTestPage(CancellationToken cancellationToken)
+        {
+            if (!await _currentUser.IsAdminAsync(cancellationToken))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator może uruchomić test SignalR." });
             }
 
-            const connection = new signalR.HubConnectionBuilder()
-              .withUrl("/hubs/booking-notifications")
-              .withAutomaticReconnect()
-              .build();
+            const string html = """
+            <!doctype html>
+            <html>
+            <head>
+              <meta charset="utf-8" />
+              <title>Test SignalR</title>
+              <style>
+                body { font-family: Arial, sans-serif; margin: 32px; }
+                pre { padding: 16px; background: #111827; color: #d1fae5; min-height: 220px; white-space: pre-wrap; }
+                button { padding: 10px 14px; cursor: pointer; }
+              </style>
+            </head>
+            <body>
+              <h1>Test SignalR</h1>
+              <button id="testButton">Wyślij testowe powiadomienie</button>
+              <pre id="log"></pre>
 
-            connection.on("testNotification", message => {
-              write("testNotification: " + JSON.stringify(message));
-            });
+              <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.7/dist/browser/signalr.min.js"></script>
+              <script>
+                const log = document.getElementById("log");
+                const button = document.getElementById("testButton");
 
-            connection.on("appointmentBooked", message => {
-              write("appointmentBooked: " + JSON.stringify(message));
-            });
+                function write(message) {
+                  log.textContent += message + "\n";
+                }
 
-            connection.on("hairdresserAppointmentBooked", message => {
-              write("hairdresserAppointmentBooked: " + JSON.stringify(message));
-            });
+                const connection = new signalR.HubConnectionBuilder()
+                  .withUrl("/hubs/booking-notifications")
+                  .withAutomaticReconnect()
+                  .build();
 
-            connection.start()
-              .then(() => write("Connected to SignalR"))
-              .catch(err => write("Connection error: " + err));
+                connection.on("testNotification", message => {
+                  write("Powiadomienie testowe: " + JSON.stringify(message));
+                });
 
-            button.addEventListener("click", async () => {
-              const response = await fetch("/api/Notifications/test", { method: "POST" });
-              write("POST /api/Notifications/test -> " + response.status);
-            });
-          </script>
-        </body>
-        </html>
-        """;
+                connection.on("appointmentBooked", message => {
+                  write("Nowa wizyta: " + JSON.stringify(message));
+                });
 
-        return Content(html, "text/html");
-    }
+                connection.on("hairdresserAppointmentBooked", message => {
+                  write("Nowa wizyta fryzjera: " + JSON.stringify(message));
+                });
 
-    [HttpPost("test")]
-    public async Task<IActionResult> SendTestNotification(CancellationToken cancellationToken)
-    {
-        var payload = new
+                connection.start()
+                  .then(() => connection.invoke("JoinAdminGroup"))
+                  .then(() => write("Połączono z SignalR jako administrator"))
+                  .catch(err => write("Błąd połączenia: " + err));
+
+                button.addEventListener("click", async () => {
+                  const response = await fetch("/api/Notifications/test", { method: "POST" });
+                  write("POST /api/Notifications/test -> " + response.status);
+                });
+              </script>
+            </body>
+            </html>
+            """;
+
+            return Content(html, "text/html");
+        }
+
+        [HttpPost("test")]
+        public async Task<IActionResult> SendTestNotification(CancellationToken cancellationToken)
         {
-            type = "test",
-            message = "SignalR notification from HairSalon.Booking.Api",
-            sentAt = DateTimeOffset.UtcNow
-        };
+            if (!await _currentUser.IsAdminAsync(cancellationToken))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator może wysłać testowe powiadomienie SignalR." });
+            }
 
-        await hubContext.Clients.All.SendAsync("testNotification", payload, cancellationToken);
-        return Ok(payload);
+            var payload = new
+            {
+                type = "test",
+                message = "Testowe powiadomienie SignalR z HairSalon.Booking.Api",
+                sentAt = DateTimeOffset.UtcNow
+            };
+
+            await _hubContext.Clients.All.SendAsync("testNotification", payload, cancellationToken);
+            return Ok(payload);
+        }
     }
 }

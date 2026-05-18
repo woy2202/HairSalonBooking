@@ -1,7 +1,13 @@
-namespace HairSalon.Booking.Api.Model;
+namespace HairSalon.Booking.Api.Model
+{
+    public sealed class HairdresserRequest
+    {
+        public string FirstName { get; set; } = string.Empty;
 
-public sealed record HairdresserRequest(
-    string FirstName, 
-    string LastName, 
-    string Specialization, 
-    bool IsActive);
+        public string LastName { get; set; } = string.Empty;
+
+        public string Specialization { get; set; } = string.Empty;
+
+        public bool IsActive { get; set; }
+    }
+}

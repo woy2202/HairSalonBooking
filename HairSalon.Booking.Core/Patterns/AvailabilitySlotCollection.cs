@@ -1,25 +1,31 @@
 using System.Collections;
 
-namespace HairSalon.Booking.Core.Patterns;
-
-// Iterator: exposes available booking slots without leaking collection internals.
-public sealed class AvailabilitySlotCollection : IEnumerable<DateTimeOffset>
+namespace HairSalon.Booking.Core.Patterns
 {
-    private readonly List<DateTimeOffset> _slots = [];
-
-    public AvailabilitySlotCollection(DateTimeOffset day, TimeOnly opensAt, TimeOnly closesAt, int stepMinutes)
+    public sealed class AvailabilitySlotCollection : IEnumerable<DateTimeOffset>
     {
-        var current = new DateTimeOffset(day.Date + opensAt.ToTimeSpan(), day.Offset);
-        var end = new DateTimeOffset(day.Date + closesAt.ToTimeSpan(), day.Offset);
+        private readonly List<DateTimeOffset> _slots = new List<DateTimeOffset>();
 
-        while (current < end)
+        public AvailabilitySlotCollection(DateTimeOffset day, TimeOnly opensAt, TimeOnly closesAt, int stepMinutes)
         {
-            _slots.Add(current);
-            current = current.AddMinutes(stepMinutes);
+            var current = new DateTimeOffset(day.Date + opensAt.ToTimeSpan(), day.Offset);
+            var end = new DateTimeOffset(day.Date + closesAt.ToTimeSpan(), day.Offset);
+
+            while (current < end)
+            {
+                _slots.Add(current);
+                current = current.AddMinutes(stepMinutes);
+            }
+        }
+
+        public IEnumerator<DateTimeOffset> GetEnumerator()
+        {
+            return _slots.GetEnumerator();
+        }
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return GetEnumerator();
         }
     }
-
-    public IEnumerator<DateTimeOffset> GetEnumerator() => _slots.GetEnumerator();
-
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
