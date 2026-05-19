@@ -17,6 +17,7 @@ namespace HairSalon.Booking.Api.Controllers
         private readonly IBookingRepository<SalonService> _services;
         private readonly IBookingRepository<SalonPhoto> _salonPhotos;
         private readonly IBookingRepository<Appointment> _appointments;
+        private readonly IAppointmentStatusService _appointmentStatusService;
 
         public AdminController(
             ICurrentUserService currentUser,
@@ -25,7 +26,8 @@ namespace HairSalon.Booking.Api.Controllers
             IBookingRepository<Hairdresser> hairdressers,
             IBookingRepository<SalonService> services,
             IBookingRepository<SalonPhoto> salonPhotos,
-            IBookingRepository<Appointment> appointments)
+            IBookingRepository<Appointment> appointments,
+            IAppointmentStatusService appointmentStatusService)
         {
             _currentUser = currentUser;
             _users = users;
@@ -34,6 +36,7 @@ namespace HairSalon.Booking.Api.Controllers
             _services = services;
             _salonPhotos = salonPhotos;
             _appointments = appointments;
+            _appointmentStatusService = appointmentStatusService;
         }
 
         [HttpGet("users")]
@@ -41,7 +44,7 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moze wyswietlić użytkowników." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator może wyświetlić użytkowników." });
             }
 
             return Ok(await _users.GetAllAsync(cancellationToken));
@@ -52,7 +55,7 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moze wyswietlić klientów." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator może wyświetlić klientów." });
             }
 
             return Ok(await _customers.GetAllAsync(cancellationToken));
@@ -63,7 +66,7 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moze wyswietlić fryzjerów." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator może wyświetlić fryzjerów." });
             }
 
             return Ok(await _hairdressers.GetAllAsync(cancellationToken));
@@ -74,7 +77,7 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moze wyswietlic uslugi." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator może wyświetlić usługi." });
             }
 
             return Ok(await _services.GetAllAsync(cancellationToken));
@@ -85,7 +88,7 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moze wyswietlic zdjecia salonu." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator może wyświetlić zdjęcia salonu." });
             }
 
             return Ok(await _salonPhotos.GetAllAsync(cancellationToken));
@@ -96,9 +99,10 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moze wyswietlić wizyty." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator może wyświetlić wizyty." });
             }
 
+            await _appointmentStatusService.RefreshExpiredAppointmentsAsync(cancellationToken);
             return Ok(await _appointments.GetAllAsync(cancellationToken));
         }
 
@@ -107,7 +111,7 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moze zmieniać role użytkowników." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator może zmieniać role użytkowników." });
             }
 
             var user = await _users.GetAsync(userId, cancellationToken);

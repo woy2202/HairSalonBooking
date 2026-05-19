@@ -20,6 +20,7 @@ namespace HairSalon.Booking.Api.Controllers
         private readonly IAppointmentBookingFacade _bookingFacade;
         private readonly IPhotoStorageService _photoStorage;
         private readonly ICurrentUserService _currentUser;
+        private readonly IAppointmentStatusService _appointmentStatusService;
         private readonly IOptions<AzureBookingOptions> _options;
 
         public HairdressersController(
@@ -30,6 +31,7 @@ namespace HairSalon.Booking.Api.Controllers
             IAppointmentBookingFacade bookingFacade,
             IPhotoStorageService photoStorage,
             ICurrentUserService currentUser,
+            IAppointmentStatusService appointmentStatusService,
             IOptions<AzureBookingOptions> options)
         {
             _repository = repository;
@@ -39,6 +41,7 @@ namespace HairSalon.Booking.Api.Controllers
             _bookingFacade = bookingFacade;
             _photoStorage = photoStorage;
             _currentUser = currentUser;
+            _appointmentStatusService = appointmentStatusService;
             _options = options;
         }
 
@@ -62,9 +65,10 @@ namespace HairSalon.Booking.Api.Controllers
             var user = await _currentUser.GetCurrentAppUserAsync(cancellationToken);
             if (user?.HairdresserId is null)
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Zalogowany uøytkownik nie ma przypisanego profilu fryzjera." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Zalogowany u≈ºytkownik nie ma przypisanego profilu fryzjera." });
             }
 
+            await _appointmentStatusService.RefreshExpiredAppointmentsAsync(cancellationToken);
             var allAppointments = await _appointments.GetAllAsync(cancellationToken);
             var hairdresserAppointments = allAppointments
                 .Where(appointment => appointment.HairdresserId == user.HairdresserId)
@@ -74,13 +78,43 @@ namespace HairSalon.Booking.Api.Controllers
             return Ok(hairdresserAppointments);
         }
 
+        [HttpPatch("me/appointments/{appointmentId}/status")]
+        public async Task<ActionResult<Appointment>> ChangeMyAppointmentStatus(string appointmentId, ChangeAppointmentStatusRequest request, CancellationToken cancellationToken)
+        {
+            var user = await _currentUser.GetCurrentAppUserAsync(cancellationToken);
+            if (user?.HairdresserId is null)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Zalogowany u≈ºytkownik nie ma przypisanego profilu fryzjera." });
+            }
+
+            var appointment = await _appointments.GetAsync(appointmentId, cancellationToken);
+            if (appointment is null)
+            {
+                return NotFound(new { error = "Nie znaleziono wizyty." });
+            }
+
+            appointment = await _appointmentStatusService.RefreshExpiredAppointmentAsync(appointment, cancellationToken);
+            if (appointment.HairdresserId != user.HairdresserId)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Fryzjer mo≈ºe zmieniaƒá status tylko swoich wizyt." });
+            }
+
+            var validationError = ValidateHairdresserStatusChange(appointment, request.Status);
+            if (!string.IsNullOrWhiteSpace(validationError))
+            {
+                return BadRequest(new { error = validationError });
+            }
+
+            appointment.Status = request.Status;
+            return Ok(await _appointments.UpsertAsync(appointment, cancellationToken));
+        }
         [HttpGet("me/customers/{customerId}/history")]
         public async Task<ActionResult> GetCustomerHistory(string customerId, CancellationToken cancellationToken)
         {
             var user = await _currentUser.GetCurrentAppUserAsync(cancellationToken);
             if (user?.HairdresserId is null)
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Zalogowany uøytkownik nie ma przypisanego profilu fryzjera." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Zalogowany u≈ºytkownik nie ma przypisanego profilu fryzjera." });
             }
 
             var customer = await _customers.GetAsync(customerId, cancellationToken);
@@ -89,6 +123,7 @@ namespace HairSalon.Booking.Api.Controllers
                 return NotFound(new { error = "Nie znaleziono klienta." });
             }
 
+            await _appointmentStatusService.RefreshExpiredAppointmentsAsync(cancellationToken);
             var allAppointments = await _appointments.GetAllAsync(cancellationToken);
             var customerAppointments = allAppointments
                 .Where(appointment => appointment.CustomerId == customerId)
@@ -140,7 +175,7 @@ namespace HairSalon.Booking.Api.Controllers
             var user = await _currentUser.GetCurrentAppUserAsync(cancellationToken);
             if (user?.HairdresserId is null)
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Zalogowany uøytkownik nie ma przypisanego profilu fryzjera." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Zalogowany u≈ºytkownik nie ma przypisanego profilu fryzjera." });
             }
 
             var customer = await _customers.GetAsync(customerId, cancellationToken);
@@ -149,6 +184,7 @@ namespace HairSalon.Booking.Api.Controllers
                 return NotFound(new { error = "Nie znaleziono klienta." });
             }
 
+            await _appointmentStatusService.RefreshExpiredAppointmentsAsync(cancellationToken);
             var allAppointments = await _appointments.GetAllAsync(cancellationToken);
             var hairdresserAppointmentsWithCustomer = allAppointments
                 .Where(appointment => appointment.CustomerId == customerId && appointment.HairdresserId == user.HairdresserId)
@@ -157,7 +193,7 @@ namespace HairSalon.Booking.Api.Controllers
 
             if (hairdresserAppointmentsWithCustomer.Count == 0)
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Ten fryzjer nie ma wspÛlnych wizyt z tym klientem, dlatego nie moøe odczytaÊ jego historii." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Ten fryzjer nie ma wsp√≥lnych wizyt z tym klientem, dlatego nie mo≈ºe odczytaƒá jego historii." });
             }
 
             var services = await _services.GetAllAsync(cancellationToken);
@@ -187,7 +223,7 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await _currentUser.IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moøe dodawaÊ zdjÍcie fryzjera." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator mo≈ºe dodawaƒá zdjƒôcie fryzjera." });
             }
 
             var hairdresser = await _repository.GetAsync(id, cancellationToken);
@@ -222,7 +258,7 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await _currentUser.IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moøe dodawaÊ fryzjerÛw." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator mo≈ºe dodawaƒá fryzjer√≥w." });
             }
 
             var hairdresser = Apply(new Hairdresser(), request);
@@ -235,7 +271,7 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await _currentUser.IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moøe edytowaÊ fryzjerÛw." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator mo≈ºe edytowaƒá fryzjer√≥w." });
             }
 
             var existing = await _repository.GetAsync(id, cancellationToken);
@@ -253,22 +289,49 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await _currentUser.IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moøe usuwaÊ fryzjerÛw." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator mo≈ºe usuwaƒá fryzjer√≥w." });
             }
 
             var existing = await _repository.GetAsync(id, cancellationToken);
             if (existing is null)
             {
-                return NotFound(new { error = "Nie znaleziono fryzjera do usuniÍcia." });
+                return NotFound(new { error = "Nie znaleziono fryzjera do usuniƒôcia." });
             }
 
             if (await HasAppointmentsAsync(id, cancellationToken))
             {
-                return BadRequest(new { error = "Nie moøna usunπÊ fryzjera, poniewaø ma przypisane wizyty. Najpierw anuluj albo usuÒ powiπzane wizyty." });
+                return BadRequest(new { error = "Nie mo≈ºna usunƒÖƒá fryzjera, poniewa≈º ma przypisane wizyty. Najpierw anuluj albo usu≈Ñ powiƒÖzane wizyty." });
             }
 
             await _repository.DeleteAsync(id, cancellationToken);
             return NoContent();
+        }
+
+        private static string? ValidateHairdresserStatusChange(Appointment appointment, AppointmentStatus status)
+        {
+            if (appointment.Status == AppointmentStatus.Cancelled)
+            {
+                return "Nie mo≈ºna zmieniƒá statusu anulowanej wizyty.";
+            }
+
+            if (appointment.Status == AppointmentStatus.Completed)
+            {
+                return "Nie mo≈ºna zmieniƒá statusu zako≈Ñczonej wizyty.";
+            }
+
+            if (status != AppointmentStatus.Confirmed &&
+                status != AppointmentStatus.Completed &&
+                status != AppointmentStatus.Cancelled)
+            {
+                return "Fryzjer mo≈ºe ustawiƒá status Confirmed, Completed albo Cancelled.";
+            }
+
+            if (status == AppointmentStatus.Completed && appointment.EndAt.ToUniversalTime() > DateTimeOffset.UtcNow)
+            {
+                return "Nie mo≈ºna zako≈Ñczyƒá wizyty przed planowanƒÖ godzinƒÖ zako≈Ñczenia.";
+            }
+
+            return null;
         }
 
         private static Hairdresser Apply(Hairdresser hairdresser, HairdresserRequest request)

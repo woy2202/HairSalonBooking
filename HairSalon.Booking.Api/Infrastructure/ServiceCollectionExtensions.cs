@@ -19,10 +19,12 @@ namespace HairSalon.Booking.Api.Infrastructure
             services.AddSingleton<IBookingEntityFactory, BookingEntityFactory>();
             services.AddScoped<ICurrentUserService, EasyAuthCurrentUserService>();
             services.AddScoped<IPhotoStorageService, BlobPhotoStorageService>();
+            services.AddScoped<IAppointmentStatusService, AppointmentStatusService>();
             services.AddScoped<IAppointmentBookingFacade, AppointmentBookingFacade>();
             services.AddScoped<IAppointmentBookedHandler, AzureQueueAppointmentBookedHandler>();
             services.AddScoped<IAppointmentBookedHandler, SignalRAppointmentBookedHandler>();
             services.AddScoped<IBookingEventPublisher, BookingEventPublisher>();
+            services.AddHostedService<AppointmentStatusBackgroundService>();
 
             var options = configuration.GetSection("Azure").Get<AzureBookingOptions>() ?? new AzureBookingOptions();
             var signalRBuilder = services.AddSignalR();

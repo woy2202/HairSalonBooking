@@ -15,19 +15,22 @@ namespace HairSalon.Booking.Api.Controllers
         private readonly IBookingRepository<Hairdresser> _hairdressers;
         private readonly IBookingRepository<SalonService> _services;
         private readonly ICurrentUserService _currentUser;
+        private readonly IAppointmentStatusService _appointmentStatusService;
 
         public CustomersController(
             IBookingRepository<Customer> repository,
             IBookingRepository<Appointment> appointments,
             IBookingRepository<Hairdresser> hairdressers,
             IBookingRepository<SalonService> services,
-            ICurrentUserService currentUser)
+            ICurrentUserService currentUser,
+            IAppointmentStatusService appointmentStatusService)
         {
             _repository = repository;
             _appointments = appointments;
             _hairdressers = hairdressers;
             _services = services;
             _currentUser = currentUser;
+            _appointmentStatusService = appointmentStatusService;
         }
 
         [HttpGet]
@@ -35,7 +38,7 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await _currentUser.IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator mo¿e wyœwietliæ listê klientów." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moÅ¼e wyÅ›wietliÄ‡ listÄ™ klientÃ³w." });
             }
 
             var customers = await _repository.GetAllAsync(cancellationToken);
@@ -47,7 +50,7 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await _currentUser.IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator mo¿e wyœwietliæ dowolnego klienta po id." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moÅ¼e wyÅ›wietliÄ‡ dowolnego klienta po id." });
             }
 
             var customer = await _repository.GetAsync(id, cancellationToken);
@@ -60,7 +63,7 @@ namespace HairSalon.Booking.Api.Controllers
             var user = await _currentUser.GetCurrentAppUserAsync(cancellationToken);
             if (user?.CustomerId is null)
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Zalogowany u¿ytkownik nie ma przypisanego profilu klienta." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Zalogowany uÅ¼ytkownik nie ma przypisanego profilu klienta." });
             }
 
             var customer = await _repository.GetAsync(user.CustomerId, cancellationToken);
@@ -73,9 +76,10 @@ namespace HairSalon.Booking.Api.Controllers
             var user = await _currentUser.GetCurrentAppUserAsync(cancellationToken);
             if (user?.CustomerId is null)
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Zalogowany u¿ytkownik nie ma przypisanego profilu klienta." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Zalogowany uÅ¼ytkownik nie ma przypisanego profilu klienta." });
             }
 
+            await _appointmentStatusService.RefreshExpiredAppointmentsAsync(cancellationToken);
             var allAppointments = await _appointments.GetAllAsync(cancellationToken);
             var customerAppointments = allAppointments
                 .Where(appointment => appointment.CustomerId == user.CustomerId)
@@ -90,7 +94,7 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await _currentUser.IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator mo¿e wyœwietliæ pe³n¹ historiê klienta." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moÅ¼e wyÅ›wietliÄ‡ peÅ‚nÄ… historiÄ™ klienta." });
             }
 
             var customer = await _repository.GetAsync(id, cancellationToken);
@@ -99,6 +103,7 @@ namespace HairSalon.Booking.Api.Controllers
                 return NotFound(new { error = "Nie znaleziono klienta." });
             }
 
+            await _appointmentStatusService.RefreshExpiredAppointmentsAsync(cancellationToken);
             var appointments = (await _appointments.GetAllAsync(cancellationToken))
                 .Where(appointment => appointment.CustomerId == id)
                 .OrderByDescending(appointment => appointment.StartAt)
@@ -125,7 +130,7 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await _currentUser.IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator mo¿e dodawaæ klientów." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moÅ¼e dodawaÄ‡ klientÃ³w." });
             }
 
             var customer = Apply(new Customer(), request);
@@ -138,7 +143,7 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await _currentUser.IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator mo¿e edytowaæ dowolnego klienta." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moÅ¼e edytowaÄ‡ dowolnego klienta." });
             }
 
             var existing = await _repository.GetAsync(id, cancellationToken);
@@ -157,7 +162,7 @@ namespace HairSalon.Booking.Api.Controllers
             var user = await _currentUser.GetCurrentAppUserAsync(cancellationToken);
             if (user?.CustomerId is null)
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Zalogowany u¿ytkownik nie ma przypisanego profilu klienta." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Zalogowany uÅ¼ytkownik nie ma przypisanego profilu klienta." });
             }
 
             var existing = await _repository.GetAsync(user.CustomerId, cancellationToken);
@@ -175,18 +180,18 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await _currentUser.IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator mo¿e usuwaæ klientów." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moÅ¼e usuwaÄ‡ klientÃ³w." });
             }
 
             var existing = await _repository.GetAsync(id, cancellationToken);
             if (existing is null)
             {
-                return NotFound(new { error = "Nie znaleziono klienta do usuniêcia." });
+                return NotFound(new { error = "Nie znaleziono klienta do usuniÄ™cia." });
             }
 
             if (await HasAppointmentsAsync(id, cancellationToken))
             {
-                return BadRequest(new { error = "Nie mo¿na usun¹æ klienta, poniewa¿ ma przypisane wizyty. Najpierw anuluj albo usuñ powi¹zane wizyty." });
+                return BadRequest(new { error = "Nie moÅ¼na usunÄ…Ä‡ klienta, poniewaÅ¼ ma przypisane wizyty. Najpierw anuluj albo usuÅ„ powiÄ…zane wizyty." });
             }
 
             await _repository.DeleteAsync(id, cancellationToken);

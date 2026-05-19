@@ -29,4 +29,9 @@ namespace HairSalon.Booking.Api.Model
 
         public string? Notes { get; set; }
     }
+
+    public sealed class ChangeAppointmentStatusRequest
+    {
+        public AppointmentStatus Status { get; set; }
+    }
 }

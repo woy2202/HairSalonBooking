@@ -21,6 +21,7 @@ namespace HairSalon.Booking.Api.Controllers
         private readonly IBookingRepository<SalonService> _services;
         private readonly IAppointmentBookingFacade _bookingFacade;
         private readonly ICurrentUserService _currentUser;
+        private readonly IAppointmentStatusService _appointmentStatusService;
 
         public AppointmentsController(
             IBookingRepository<Appointment> repository,
@@ -28,7 +29,8 @@ namespace HairSalon.Booking.Api.Controllers
             IBookingRepository<Hairdresser> hairdressers,
             IBookingRepository<SalonService> services,
             IAppointmentBookingFacade bookingFacade,
-            ICurrentUserService currentUser)
+            ICurrentUserService currentUser,
+            IAppointmentStatusService appointmentStatusService)
         {
             _repository = repository;
             _customers = customers;
@@ -36,6 +38,7 @@ namespace HairSalon.Booking.Api.Controllers
             _services = services;
             _bookingFacade = bookingFacade;
             _currentUser = currentUser;
+            _appointmentStatusService = appointmentStatusService;
         }
 
         [HttpGet]
@@ -43,9 +46,10 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await _currentUser.IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moze wyswietliæ wszystkie wizyty." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moÅ¼e wyÅ›wietliÄ‡ wszystkie wizyty." });
             }
 
+            await _appointmentStatusService.RefreshExpiredAppointmentsAsync(cancellationToken);
             var appointments = await _repository.GetAllAsync(cancellationToken);
             return Ok(appointments);
         }
@@ -59,10 +63,11 @@ namespace HairSalon.Booking.Api.Controllers
                 return NotFound(new { error = "Nie znaleziono wizyty." });
             }
 
+            appointment = await _appointmentStatusService.RefreshExpiredAppointmentAsync(appointment, cancellationToken);
             var user = await _currentUser.GetCurrentAppUserAsync(cancellationToken);
             if (!CanReadAppointment(user, appointment))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Nie masz uprawnieñ do odczytu tej wizyty." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Nie masz uprawnieÅ„ do odczytu tej wizyty." });
             }
 
             return Ok(appointment);
@@ -74,7 +79,7 @@ namespace HairSalon.Booking.Api.Controllers
             var user = await _currentUser.GetCurrentAppUserAsync(cancellationToken);
             if (!CanCreateAppointment(user, request))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Klient moze utworzyæ wizyte tylko dla swojego konta. Administrator mo¿e utworzyæ dowoln¹ wizytê." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Klient moÅ¼e utworzyÄ‡ wizytÄ™ tylko dla swojego konta. Administrator moÅ¼e utworzyÄ‡ dowolnÄ… wizytÄ™." });
             }
 
             var appointment = Apply(new Appointment(), request);
@@ -94,7 +99,7 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await _currentUser.IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator mo¿e edytowaæ wizyty." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moÅ¼e edytowaÄ‡ wizyty." });
             }
 
             var existing = await _repository.GetAsync(id, cancellationToken);
@@ -118,13 +123,13 @@ namespace HairSalon.Booking.Api.Controllers
         {
             if (!await _currentUser.IsAdminAsync(cancellationToken))
             {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator mo¿e usuwaæ wizyty." });
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko administrator moÅ¼e usuwaÄ‡ wizyty." });
             }
 
             var existing = await _repository.GetAsync(id, cancellationToken);
             if (existing is null)
             {
-                return NotFound(new { error = "Nie znaleziono wizyty do usuniêcia." });
+                return NotFound(new { error = "Nie znaleziono wizyty do usuniÄ™cia." });
             }
 
             await _repository.DeleteAsync(id, cancellationToken);
@@ -182,7 +187,7 @@ namespace HairSalon.Booking.Api.Controllers
             var service = await _services.GetAsync(request.SalonServiceId, cancellationToken);
             if (service is null || !service.IsAvailable)
             {
-                return "Us³uga przypisana do wizyty nie istnieje albo jest niedostêpna.";
+                return "UsÅ‚uga przypisana do wizyty nie istnieje albo jest niedostÄ™pna.";
             }
 
             var endAt = request.StartAt.AddMinutes(service.DurationMinutes);
@@ -200,24 +205,24 @@ namespace HairSalon.Booking.Api.Controllers
                 request.StartAt < existing.EndAt &&
                 endAt > existing.StartAt);
 
-            return hasCollision ? "Wybrany termin wizyty jest ju¿ zajêty." : null;
+            return hasCollision ? "Wybrany termin wizyty jest juÅ¼ zajÄ™ty." : null;
         }
 
         private static string? ValidateAppointmentTime(DateTimeOffset startAt, DateTimeOffset endAt)
         {
             if (startAt == default)
             {
-                return "Data rozpoczêcia wizyty jest wymagana.";
+                return "Data rozpoczÄ™cia wizyty jest wymagana.";
             }
 
             if (startAt.ToUniversalTime() <= DateTimeOffset.UtcNow)
             {
-                return "Nie mo¿na ustawiæ wizyty w przesz³oœci.";
+                return "Nie moÅ¼na ustawiÄ‡ wizyty w przeszÅ‚oÅ›ci.";
             }
 
             if (startAt.Minute % SlotMinutes != 0 || startAt.Second != 0)
             {
-                return "Wizyta musi zaczynaæ siê o pe³nej pó³godzinie, np. 09:00 albo 09:30.";
+                return "Wizyta musi zaczynaÄ‡ siÄ™ o peÅ‚nej pÃ³Å‚godzinie, np. 09:00 albo 09:30.";
             }
 
             var startTime = TimeOnly.FromDateTime(startAt.DateTime);
@@ -225,7 +230,7 @@ namespace HairSalon.Booking.Api.Controllers
 
             if (startTime < SalonOpeningTime || endTime > SalonClosingTime || endAt.Date != startAt.Date)
             {
-                return "Wizyta musi mieœciæ siê w godzinach pracy salonu od 09:00 do 17:00.";
+                return "Wizyta musi mieÅ›ciÄ‡ siÄ™ w godzinach pracy salonu od 09:00 do 17:00.";
             }
 
             return null;
