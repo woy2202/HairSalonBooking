@@ -7,6 +7,7 @@ namespace HairSalon.Booking.Core.Patterns
         SalonService,
         Appointment,
         SalonPhoto,
+        Review,
         AppUser
     }
 }

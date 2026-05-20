@@ -40,6 +40,7 @@ namespace HairSalon.Booking.Api.Infrastructure
                 services.AddSingleton<IBookingRepository<SalonService>, InMemoryBookingRepository<SalonService>>();
                 services.AddSingleton<IBookingRepository<Appointment>, InMemoryBookingRepository<Appointment>>();
                 services.AddSingleton<IBookingRepository<SalonPhoto>, InMemoryBookingRepository<SalonPhoto>>();
+                services.AddSingleton<IBookingRepository<Review>, InMemoryBookingRepository<Review>>();
                 services.AddSingleton<IBookingRepository<AppUser>, InMemoryBookingRepository<AppUser>>();
                 services.AddHostedService<SeedDataHostedService>();
                 return services;

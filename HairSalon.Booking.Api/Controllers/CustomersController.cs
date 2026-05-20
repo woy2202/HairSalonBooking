@@ -1,5 +1,5 @@
-using HairSalon.Booking.Api.Model;
 using HairSalon.Booking.Api.Infrastructure;
+using HairSalon.Booking.Api.Model;
 using HairSalon.Booking.Core.Models;
 using HairSalon.Booking.Core.Repositories;
 using Microsoft.AspNetCore.Mvc;
@@ -11,24 +11,30 @@ namespace HairSalon.Booking.Api.Controllers
     public sealed class CustomersController : ControllerBase
     {
         private readonly IBookingRepository<Customer> _repository;
+        private readonly IBookingRepository<AppUser> _users;
         private readonly IBookingRepository<Appointment> _appointments;
         private readonly IBookingRepository<Hairdresser> _hairdressers;
         private readonly IBookingRepository<SalonService> _services;
+        private readonly IBookingRepository<Review> _reviews;
         private readonly ICurrentUserService _currentUser;
         private readonly IAppointmentStatusService _appointmentStatusService;
 
         public CustomersController(
             IBookingRepository<Customer> repository,
+            IBookingRepository<AppUser> users,
             IBookingRepository<Appointment> appointments,
             IBookingRepository<Hairdresser> hairdressers,
             IBookingRepository<SalonService> services,
+            IBookingRepository<Review> reviews,
             ICurrentUserService currentUser,
             IAppointmentStatusService appointmentStatusService)
         {
             _repository = repository;
+            _users = users;
             _appointments = appointments;
             _hairdressers = hairdressers;
             _services = services;
+            _reviews = reviews;
             _currentUser = currentUser;
             _appointmentStatusService = appointmentStatusService;
         }
@@ -87,6 +93,41 @@ namespace HairSalon.Booking.Api.Controllers
                 .ToList();
 
             return Ok(customerAppointments);
+        }
+
+        [HttpPatch("me/appointments/{appointmentId}/cancel")]
+        public async Task<ActionResult<Appointment>> CancelMyAppointment(string appointmentId, CancellationToken cancellationToken)
+        {
+            var user = await _currentUser.GetCurrentAppUserAsync(cancellationToken);
+            if (user?.CustomerId is null)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Zalogowany użytkownik nie ma przypisanego profilu klienta." });
+            }
+
+            var appointment = await _appointments.GetAsync(appointmentId, cancellationToken);
+            if (appointment is null)
+            {
+                return NotFound(new { error = "Nie znaleziono wizyty do odwołania." });
+            }
+
+            appointment = await _appointmentStatusService.RefreshExpiredAppointmentAsync(appointment, cancellationToken);
+            if (appointment.CustomerId != user.CustomerId)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Klient może odwołać tylko swoją wizytę." });
+            }
+
+            if (appointment.Status == AppointmentStatus.Cancelled)
+            {
+                return BadRequest(new { error = "Ta wizyta jest już odwołana." });
+            }
+
+            if (appointment.Status == AppointmentStatus.Completed)
+            {
+                return BadRequest(new { error = "Nie można odwołać wizyty, która już się zakończyła." });
+            }
+
+            appointment.Status = AppointmentStatus.Cancelled;
+            return Ok(await _appointments.UpsertAsync(appointment, cancellationToken));
         }
 
         [HttpGet("{id}/history")]
@@ -175,6 +216,24 @@ namespace HairSalon.Booking.Api.Controllers
             return Ok(updated);
         }
 
+        [HttpDelete("me")]
+        public async Task<IActionResult> DeleteMe(CancellationToken cancellationToken)
+        {
+            var user = await _currentUser.GetCurrentAppUserAsync(cancellationToken);
+            if (user is null || user.Role != UserRole.Customer)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Tylko klient może usunąć swoje konto klienta." });
+            }
+
+            if (!string.IsNullOrWhiteSpace(user.CustomerId))
+            {
+                await DeleteCustomerPresenceAsync(user.CustomerId, cancellationToken);
+            }
+
+            await _users.DeleteAsync(user.id, cancellationToken);
+            return NoContent();
+        }
+
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(string id, CancellationToken cancellationToken)
         {
@@ -189,12 +248,8 @@ namespace HairSalon.Booking.Api.Controllers
                 return NotFound(new { error = "Nie znaleziono klienta do usunięcia." });
             }
 
-            if (await HasAppointmentsAsync(id, cancellationToken))
-            {
-                return BadRequest(new { error = "Nie można usunąć klienta, ponieważ ma przypisane wizyty. Najpierw anuluj albo usuń powiązane wizyty." });
-            }
-
-            await _repository.DeleteAsync(id, cancellationToken);
+            await DeleteCustomerPresenceAsync(id, cancellationToken);
+            await DeleteUsersLinkedWithCustomerAsync(id, cancellationToken);
             return NoContent();
         }
 
@@ -208,10 +263,30 @@ namespace HairSalon.Booking.Api.Controllers
             return customer;
         }
 
-        private async Task<bool> HasAppointmentsAsync(string customerId, CancellationToken cancellationToken)
+        private async Task DeleteCustomerPresenceAsync(string customerId, CancellationToken cancellationToken)
         {
             var appointments = await _appointments.GetAllAsync(cancellationToken);
-            return appointments.Any(appointment => appointment.CustomerId == customerId);
+            foreach (var appointment in appointments.Where(appointment => appointment.CustomerId == customerId))
+            {
+                await _appointments.DeleteAsync(appointment.id, cancellationToken);
+            }
+
+            var reviews = await _reviews.GetAllAsync(cancellationToken);
+            foreach (var review in reviews.Where(review => review.CustomerId == customerId))
+            {
+                await _reviews.DeleteAsync(review.id, cancellationToken);
+            }
+
+            await _repository.DeleteAsync(customerId, cancellationToken);
+        }
+
+        private async Task DeleteUsersLinkedWithCustomerAsync(string customerId, CancellationToken cancellationToken)
+        {
+            var users = await _users.GetAllAsync(cancellationToken);
+            foreach (var user in users.Where(user => user.CustomerId == customerId))
+            {
+                await _users.DeleteAsync(user.id, cancellationToken);
+            }
         }
     }
 }

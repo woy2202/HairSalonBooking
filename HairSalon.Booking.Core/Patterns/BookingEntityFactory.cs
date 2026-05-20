@@ -23,6 +23,8 @@ namespace HairSalon.Booking.Core.Patterns
                     return new Appointment();
                 case EntityKind.SalonPhoto:
                     return new SalonPhoto();
+                case EntityKind.Review:
+                    return new Review();
                 case EntityKind.AppUser:
                     return new AppUser();
                 default:

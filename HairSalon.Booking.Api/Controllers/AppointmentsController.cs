@@ -1,5 +1,5 @@
-using HairSalon.Booking.Api.Model;
 using HairSalon.Booking.Api.Infrastructure;
+using HairSalon.Booking.Api.Model;
 using HairSalon.Booking.Core.Models;
 using HairSalon.Booking.Core.Repositories;
 using HairSalon.Booking.Core.Services;

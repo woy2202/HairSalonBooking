@@ -1,5 +1,5 @@
-using HairSalon.Booking.Api.Model;
 using HairSalon.Booking.Api.Infrastructure;
+using HairSalon.Booking.Api.Model;
 using HairSalon.Booking.Api.Options;
 using HairSalon.Booking.Core.Models;
 using HairSalon.Booking.Core.Repositories;
@@ -14,9 +14,11 @@ namespace HairSalon.Booking.Api.Controllers
     public sealed class HairdressersController : ControllerBase
     {
         private readonly IBookingRepository<Hairdresser> _repository;
+        private readonly IBookingRepository<AppUser> _users;
         private readonly IBookingRepository<Appointment> _appointments;
         private readonly IBookingRepository<Customer> _customers;
         private readonly IBookingRepository<SalonService> _services;
+        private readonly IBookingRepository<Review> _reviews;
         private readonly IAppointmentBookingFacade _bookingFacade;
         private readonly IPhotoStorageService _photoStorage;
         private readonly ICurrentUserService _currentUser;
@@ -25,9 +27,11 @@ namespace HairSalon.Booking.Api.Controllers
 
         public HairdressersController(
             IBookingRepository<Hairdresser> repository,
+            IBookingRepository<AppUser> users,
             IBookingRepository<Appointment> appointments,
             IBookingRepository<Customer> customers,
             IBookingRepository<SalonService> services,
+            IBookingRepository<Review> reviews,
             IAppointmentBookingFacade bookingFacade,
             IPhotoStorageService photoStorage,
             ICurrentUserService currentUser,
@@ -35,9 +39,11 @@ namespace HairSalon.Booking.Api.Controllers
             IOptions<AzureBookingOptions> options)
         {
             _repository = repository;
+            _users = users;
             _appointments = appointments;
             _customers = customers;
             _services = services;
+            _reviews = reviews;
             _bookingFacade = bookingFacade;
             _photoStorage = photoStorage;
             _currentUser = currentUser;
@@ -108,6 +114,7 @@ namespace HairSalon.Booking.Api.Controllers
             appointment.Status = request.Status;
             return Ok(await _appointments.UpsertAsync(appointment, cancellationToken));
         }
+
         [HttpGet("me/customers/{customerId}/history")]
         public async Task<ActionResult> GetCustomerHistory(string customerId, CancellationToken cancellationToken)
         {
@@ -190,11 +197,6 @@ namespace HairSalon.Booking.Api.Controllers
                 .Where(appointment => appointment.CustomerId == customerId && appointment.HairdresserId == user.HairdresserId)
                 .OrderByDescending(appointment => appointment.StartAt)
                 .ToList();
-
-            if (hairdresserAppointmentsWithCustomer.Count == 0)
-            {
-                return StatusCode(StatusCodes.Status403Forbidden, new { error = "Ten fryzjer nie ma wspólnych wizyt z tym klientem, dlatego nie może odczytać jego historii." });
-            }
 
             var services = await _services.GetAllAsync(cancellationToken);
             var usedServices = services
@@ -298,12 +300,8 @@ namespace HairSalon.Booking.Api.Controllers
                 return NotFound(new { error = "Nie znaleziono fryzjera do usunięcia." });
             }
 
-            if (await HasAppointmentsAsync(id, cancellationToken))
-            {
-                return BadRequest(new { error = "Nie można usunąć fryzjera, ponieważ ma przypisane wizyty. Najpierw anuluj albo usuń powiązane wizyty." });
-            }
-
-            await _repository.DeleteAsync(id, cancellationToken);
+            await DeleteHairdresserPresenceAsync(id, cancellationToken);
+            await DeleteUsersLinkedWithHairdresserAsync(id, cancellationToken);
             return NoContent();
         }
 
@@ -343,10 +341,30 @@ namespace HairSalon.Booking.Api.Controllers
             return hairdresser;
         }
 
-        private async Task<bool> HasAppointmentsAsync(string hairdresserId, CancellationToken cancellationToken)
+        private async Task DeleteHairdresserPresenceAsync(string hairdresserId, CancellationToken cancellationToken)
         {
             var appointments = await _appointments.GetAllAsync(cancellationToken);
-            return appointments.Any(appointment => appointment.HairdresserId == hairdresserId);
+            foreach (var appointment in appointments.Where(appointment => appointment.HairdresserId == hairdresserId))
+            {
+                await _appointments.DeleteAsync(appointment.id, cancellationToken);
+            }
+
+            var reviews = await _reviews.GetAllAsync(cancellationToken);
+            foreach (var review in reviews.Where(review => review.HairdresserId == hairdresserId))
+            {
+                await _reviews.DeleteAsync(review.id, cancellationToken);
+            }
+
+            await _repository.DeleteAsync(hairdresserId, cancellationToken);
+        }
+
+        private async Task DeleteUsersLinkedWithHairdresserAsync(string hairdresserId, CancellationToken cancellationToken)
+        {
+            var users = await _users.GetAllAsync(cancellationToken);
+            foreach (var user in users.Where(user => user.HairdresserId == hairdresserId))
+            {
+                await _users.DeleteAsync(user.id, cancellationToken);
+            }
         }
     }
 }

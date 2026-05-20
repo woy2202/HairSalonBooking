@@ -43,6 +43,12 @@ namespace HairSalon.Booking.Api.Infrastructure
                 return false;
             }
 
+            if (context.Request.Method == HttpMethods.Get &&
+                context.Request.Path.StartsWithSegments("/api/Reviews/public", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
             return context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) ||
                 context.Request.Path.StartsWithSegments("/hubs", StringComparison.OrdinalIgnoreCase);
         }

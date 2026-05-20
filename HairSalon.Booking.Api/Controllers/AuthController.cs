@@ -1,5 +1,5 @@
-using HairSalon.Booking.Api.Model;
 using HairSalon.Booking.Api.Infrastructure;
+using HairSalon.Booking.Api.Model;
 using HairSalon.Booking.Core.Models;
 using HairSalon.Booking.Core.Repositories;
 using Microsoft.AspNetCore.Mvc;
@@ -30,7 +30,7 @@ namespace HairSalon.Booking.Api.Controllers
             var principal = _currentUser.GetCurrentPrincipal();
             if (principal is null)
             {
-                return Unauthorized(new { error = "Brakuje nag丑wk體 zalogowanego u縴tkownika z Easy Auth." });
+                return Unauthorized(new { error = "Brakuje nag艂贸wk贸w zalogowanego u偶ytkownika z Easy Auth." });
             }
 
             var user = await _users.GetAsync(principal.LocalUserId, cancellationToken);
@@ -57,7 +57,7 @@ namespace HairSalon.Booking.Api.Controllers
             var principal = _currentUser.GetCurrentPrincipal();
             if (principal is null)
             {
-                return Unauthorized(new { error = "Brakuje nag丑wk體 zalogowanego u縴tkownika z Easy Auth." });
+                return Unauthorized(new { error = "Brakuje nag艂贸wk贸w zalogowanego u偶ytkownika z Easy Auth." });
             }
 
             var existing = await _users.GetAsync(principal.LocalUserId, cancellationToken);
@@ -74,18 +74,24 @@ namespace HairSalon.Booking.Api.Controllers
             user.Email = FirstNotEmpty(request.Email, principal.Email, user.Email);
             user.LastLoginAt = DateTimeOffset.UtcNow;
 
-            if (user.Role == UserRole.Customer && string.IsNullOrWhiteSpace(user.CustomerId))
+            if (user.Role == UserRole.Customer)
             {
-                var customer = await _customers.CreateAsync(new Customer
+                Customer? customer = null;
+                if (!string.IsNullOrWhiteSpace(user.CustomerId))
                 {
-                    FirstName = user.DisplayName,
-                    LastName = string.Empty,
-                    Email = user.Email,
-                    PhoneNumber = string.Empty,
-                    Notes = "Utworzono automatycznie podczas rejestracji przez Easy Auth."
-                }, cancellationToken);
+                    customer = await _customers.GetAsync(user.CustomerId, cancellationToken);
+                }
 
-                user.CustomerId = customer.id;
+                var hasSavedCustomer = customer is not null;
+                customer ??= new Customer();
+                ApplyCustomerProfile(customer, request, user);
+
+                var savedCustomer = hasSavedCustomer
+                    ? await _customers.UpsertAsync(customer, cancellationToken)
+                    : await _customers.CreateAsync(customer, cancellationToken);
+
+                user.CustomerId = savedCustomer.id;
+                user.HairdresserId = null;
             }
 
             var saved = existing is null
@@ -105,6 +111,31 @@ namespace HairSalon.Booking.Api.Controllers
                 Provider = Request.Headers["X-MS-CLIENT-PRINCIPAL-IDP"].ToString(),
                 HasEncodedPrincipal = Request.Headers.ContainsKey("X-MS-CLIENT-PRINCIPAL")
             });
+        }
+
+        private static void ApplyCustomerProfile(Customer customer, AuthProfileRequest request, AppUser user)
+        {
+            var name = SplitDisplayName(user.DisplayName);
+            customer.FirstName = FirstNotEmpty(customer.FirstName, name.FirstName, user.DisplayName);
+            customer.LastName = FirstNotEmpty(customer.LastName, name.LastName);
+            customer.PhoneNumber = FirstNotEmpty(customer.PhoneNumber);
+            customer.Email = FirstNotEmpty(request.Email, customer.Email, user.Email);
+
+            if (string.IsNullOrWhiteSpace(customer.Notes))
+            {
+                customer.Notes = "Utworzono automatycznie podczas rejestracji przez Google.";
+            }
+        }
+
+        private static (string FirstName, string LastName) SplitDisplayName(string displayName)
+        {
+            var parts = displayName.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            return parts.Length switch
+            {
+                0 => (string.Empty, string.Empty),
+                1 => (parts[0], string.Empty),
+                _ => (parts[0], string.Join(" ", parts.Skip(1)))
+            };
         }
 
         private static string FirstNotEmpty(params string?[] values)

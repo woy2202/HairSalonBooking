@@ -63,6 +63,11 @@ namespace HairSalon.Booking.Api.Data
                 return _options.SalonPhotosContainerName;
             }
 
+            if (entityType == typeof(Review))
+            {
+                return _options.ReviewsContainerName;
+            }
+
             if (entityType == typeof(AppUser))
             {
                 return _options.UsersContainerName;
