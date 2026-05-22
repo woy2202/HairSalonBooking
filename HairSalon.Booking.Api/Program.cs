@@ -69,7 +69,7 @@ namespace HairSalon.Booking.Api
                 {
                     Title = "API rezerwacji wizyt w salonie fryzjerskim",
                     Version = "v1",
-                    Description = "Backend salonu fryzjerskiego: klienci, fryzjerzy, wizyty, uslugi, Cosmos DB, Blob Storage, kolejki i Azure Functions."
+                    Description = "Backend salonu fryzjerskiego"
                 });
             });
 
@@ -83,6 +83,7 @@ namespace HairSalon.Booking.Api
 
             app.UseHttpsRedirection();
             app.UseCors("FrontendCors");
+            app.UseMiddleware<EasyAuthClaimsMiddleware>();
             app.UseMiddleware<EasyAuthGuardMiddleware>();
             app.UseAuthorization();
 

@@ -14,5 +14,6 @@ namespace HairSalon.Booking.Core.Models
         public DateTimeOffset EndAt { get; set; }
         public AppointmentStatus Status { get; set; } = AppointmentStatus.Booked;
         public string? Notes { get; set; }
+        public DateTimeOffset? ReminderOneDayBeforeSentAt { get; set; }
     }
 }

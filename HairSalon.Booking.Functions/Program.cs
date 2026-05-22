@@ -1,6 +1,7 @@
 using Azure.Extensions.AspNetCore.Configuration.Secrets;
 using Azure.Identity;
 using HairSalon.Booking.Functions.Email;
+using HairSalon.Booking.Functions.Options;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -44,6 +45,7 @@ namespace HairSalon.Booking.Functions
             services.AddApplicationInsightsTelemetryWorkerService();
             services.ConfigureFunctionsApplicationInsights();
             services.Configure<EmailOptions>(context.Configuration.GetSection("Email"));
+            services.Configure<CosmosOptions>(context.Configuration.GetSection("Azure:Cosmos"));
             services.AddSingleton<IEmailSender, AzureCommunicationEmailSender>();
         }
     }

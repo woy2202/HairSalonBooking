@@ -55,6 +55,16 @@ namespace HairSalon.Booking.Api.Hubs
 
             var provider = httpContext.Request.Headers["X-MS-CLIENT-PRINCIPAL-IDP"].ToString();
             var providerUserId = httpContext.Request.Headers["X-MS-CLIENT-PRINCIPAL-ID"].ToString();
+            if (string.IsNullOrWhiteSpace(provider))
+            {
+                provider = Context.User?.FindFirst(EasyAuthClaimTypes.Provider)?.Value ?? string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(providerUserId))
+            {
+                providerUserId = Context.User?.FindFirst(EasyAuthClaimTypes.ProviderUserId)?.Value ?? string.Empty;
+            }
+
             if (string.IsNullOrWhiteSpace(provider) || string.IsNullOrWhiteSpace(providerUserId))
             {
                 return false;
@@ -87,6 +97,16 @@ namespace HairSalon.Booking.Api.Hubs
 
             var provider = httpContext.Request.Headers["X-MS-CLIENT-PRINCIPAL-IDP"].ToString();
             var providerUserId = httpContext.Request.Headers["X-MS-CLIENT-PRINCIPAL-ID"].ToString();
+            if (string.IsNullOrWhiteSpace(provider))
+            {
+                provider = Context.User?.FindFirst(EasyAuthClaimTypes.Provider)?.Value ?? string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(providerUserId))
+            {
+                providerUserId = Context.User?.FindFirst(EasyAuthClaimTypes.ProviderUserId)?.Value ?? string.Empty;
+            }
+
             if (string.IsNullOrWhiteSpace(provider) || string.IsNullOrWhiteSpace(providerUserId))
             {
                 return null;

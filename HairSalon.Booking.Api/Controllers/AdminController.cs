@@ -141,7 +141,12 @@ namespace HairSalon.Booking.Api.Controllers
                     await AssignCustomerRoleAsync(user, cancellationToken);
                     break;
                 case UserRole.Hairdresser:
-                    await AssignHairdresserRoleAsync(user, request, cancellationToken);
+                    var assignmentError = await AssignHairdresserRoleAsync(user, request, cancellationToken);
+                    if (!string.IsNullOrWhiteSpace(assignmentError))
+                    {
+                        return BadRequest(new { error = assignmentError });
+                    }
+
                     break;
                 case UserRole.Admin:
                     await DeleteLinkedProfileAsync(user, cancellationToken);
@@ -207,11 +212,30 @@ namespace HairSalon.Booking.Api.Controllers
             user.HairdresserId = null;
         }
 
-        private async Task AssignHairdresserRoleAsync(AppUser user, AssignUserRoleRequest request, CancellationToken cancellationToken)
+        private async Task<string?> AssignHairdresserRoleAsync(AppUser user, AssignUserRoleRequest request, CancellationToken cancellationToken)
         {
+            var isRequestedExistingHairdresser = !string.IsNullOrWhiteSpace(request.HairdresserId);
             var customer = await GetCustomerOrDefaultAsync(user.CustomerId, cancellationToken);
-            var existingHairdresser = await GetHairdresserOrDefaultAsync(user.HairdresserId, cancellationToken);
-            var hairdresser = existingHairdresser ?? CreateHairdresserFromUser(user, request.Specialization);
+            var existingHairdresser = await GetHairdresserForAssignmentAsync(user, request, cancellationToken);
+            if (existingHairdresser.Error is not null)
+            {
+                return existingHairdresser.Error;
+            }
+
+            if (isRequestedExistingHairdresser)
+            {
+                if (!string.IsNullOrWhiteSpace(user.CustomerId))
+                {
+                    await DeleteCustomerProfileAsync(user.CustomerId, cancellationToken);
+                }
+
+                user.Role = UserRole.Hairdresser;
+                user.CustomerId = null;
+                user.HairdresserId = existingHairdresser.Hairdresser!.id;
+                return null;
+            }
+
+            var hairdresser = existingHairdresser.Hairdresser ?? CreateHairdresserFromUser(user, request.Specialization);
 
             if (customer is not null)
             {
@@ -221,7 +245,7 @@ namespace HairSalon.Booking.Api.Controllers
             }
 
             hairdresser.IsActive = true;
-            var savedHairdresser = existingHairdresser is null
+            var savedHairdresser = existingHairdresser.Hairdresser is null
                 ? await _hairdressers.CreateAsync(hairdresser, cancellationToken)
                 : await _hairdressers.UpsertAsync(hairdresser, cancellationToken);
 
@@ -233,6 +257,42 @@ namespace HairSalon.Booking.Api.Controllers
             user.Role = UserRole.Hairdresser;
             user.CustomerId = null;
             user.HairdresserId = savedHairdresser.id;
+            return null;
+        }
+
+        private async Task<(Hairdresser? Hairdresser, string? Error)> GetHairdresserForAssignmentAsync(
+            AppUser user,
+            AssignUserRoleRequest request,
+            CancellationToken cancellationToken)
+        {
+            if (!string.IsNullOrWhiteSpace(request.HairdresserId))
+            {
+                var requestedHairdresser = await _hairdressers.GetAsync(request.HairdresserId, cancellationToken);
+                if (requestedHairdresser is null)
+                {
+                    return (null, "Nie znaleziono wskazanego profilu fryzjera.");
+                }
+
+                if (await IsHairdresserLinkedToAnotherUserAsync(user.id, request.HairdresserId, cancellationToken))
+                {
+                    return (null, "Wybrany profil fryzjera jest już powiązany z innym użytkownikiem.");
+                }
+
+                return (requestedHairdresser, null);
+            }
+
+            return (await GetHairdresserOrDefaultAsync(user.HairdresserId, cancellationToken), null);
+        }
+
+        private async Task<bool> IsHairdresserLinkedToAnotherUserAsync(
+            string currentUserId,
+            string hairdresserId,
+            CancellationToken cancellationToken)
+        {
+            var users = await _users.GetAllAsync(cancellationToken);
+            return users.Any(user =>
+                user.id != currentUserId &&
+                string.Equals(user.HairdresserId, hairdresserId, StringComparison.Ordinal));
         }
 
         private async Task DeleteLinkedProfileAsync(AppUser user, CancellationToken cancellationToken)

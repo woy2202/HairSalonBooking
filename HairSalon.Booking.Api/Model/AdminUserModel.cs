@@ -7,5 +7,7 @@ namespace HairSalon.Booking.Api.Model
         public UserRole Role { get; set; }
 
         public string? Specialization { get; set; }
+
+        public string? HairdresserId { get; set; }
     }
 }

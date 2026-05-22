@@ -5,6 +5,12 @@
     "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
     "APPLICATIONINSIGHTS_CONNECTION_STRING": "",
     "Azure:KeyVault:VaultUri": "",
+    "Azure:Cosmos:ConnectionString": "",
+    "Azure:Cosmos:DatabaseName": "BookingApkaDB",
+    "Azure:Cosmos:CustomersContainerName": "customers",
+    "Azure:Cosmos:HairdressersContainerName": "barbers",
+    "Azure:Cosmos:SalonServicesContainerName": "services",
+    "Azure:Cosmos:AppointmentsContainerName": "appointments",
     "AppointmentQueueName": "booking-notifications",
     "Email:ConnectionString": "",
     "Email:SenderAddress": ""

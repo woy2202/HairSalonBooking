@@ -30,7 +30,11 @@ namespace HairSalon.Booking.Api.Infrastructure
             var signalRBuilder = services.AddSignalR();
             if (!string.IsNullOrWhiteSpace(options.SignalR.ConnectionString))
             {
-                signalRBuilder.AddAzureSignalR(options.SignalR.ConnectionString);
+                signalRBuilder.AddAzureSignalR(signalROptions =>
+                {
+                    signalROptions.ConnectionString = options.SignalR.ConnectionString;
+                    signalROptions.ClaimsProvider = context => context.User.Claims;
+                });
             }
 
             if (string.IsNullOrWhiteSpace(options.Cosmos.ConnectionString))
